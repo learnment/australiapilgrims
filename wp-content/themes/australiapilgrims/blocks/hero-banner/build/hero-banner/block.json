@@ -1,0 +1,71 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "australiapilgrims/hero-banner",
+  "version": "0.1.0",
+  "title": "Hero Banner",
+  "category": "design",
+  "icon": "cover-image",
+  "description": "A hero banner with background image, heading, tagline, description, and call-to-action button.",
+  "keywords": [
+    "hero",
+    "banner",
+    "header",
+    "cover"
+  ],
+  "attributes": {
+    "backgroundImage": {
+      "type": "object",
+      "default": {
+        "id": 0,
+        "url": "",
+        "alt": ""
+      }
+    },
+    "heading": {
+      "type": "string",
+      "default": ""
+    },
+    "tagline": {
+      "type": "string",
+      "default": ""
+    },
+    "description": {
+      "type": "string",
+      "default": ""
+    },
+    "buttonText": {
+      "type": "string",
+      "default": "Learn More"
+    },
+    "buttonUrl": {
+      "type": "string",
+      "default": ""
+    },
+    "buttonTarget": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "example": {
+    "attributes": {
+      "heading": "Welcome to Australia Pilgrims",
+      "tagline": "Discover Your Journey",
+      "description": "Join us on an unforgettable pilgrimage experience.",
+      "buttonText": "Start Your Journey"
+    }
+  },
+  "supports": {
+    "html": false,
+    "align": [
+      "wide",
+      "full"
+    ],
+    "anchor": true
+  },
+  "textdomain": "hero-banner",
+  "editorScript": "file:./index.js",
+  "editorStyle": "file:./index.css",
+  "style": "file:./style-index.css",
+  "viewScript": "file:./view.js"
+}

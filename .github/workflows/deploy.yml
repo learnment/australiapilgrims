@@ -1,0 +1,29 @@
+name: Deploy workflow
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Set env vars
+        run: echo "DEPLOY_PATH=/var/www/html/australiapilgrims/public" >> $GITHUB_ENV
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install SSH Key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.PRIVATE_KEY }}
+          known_hosts: "just-a-placeholder-so-we-dont-get-errors"
+
+      - name: Adding Known Hosts
+        run: ssh-keyscan -H ${{ vars.DEPLOY_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy with rsync
+        run: rsync -azP --archive --no-perms --no-owner --no-group --human-readable --itemize-changes --delete --filter=':- .gitignore' --exclude=.git ./ ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_IP }}:${{ env.DEPLOY_PATH }}

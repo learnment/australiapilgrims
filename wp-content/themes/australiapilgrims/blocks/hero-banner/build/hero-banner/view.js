@@ -1,0 +1,1 @@
+console.log("Hello World! (from australiapilgrims-hero-banner block)");

@@ -1,0 +1,116 @@
+/**
+ * The following styles get applied both on the front of your site
+ * and in the editor.
+ */
+
+.wp-block-australiapilgrims-hero-banner {
+	position: relative;
+	min-height: 500px;
+	background-size: cover;
+	background-position: center;
+	background-repeat: no-repeat;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+
+	&.alignfull {
+		min-height: 600px;
+	}
+
+	.hero-banner__overlay {
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		background: rgba(0, 0, 0, 0.4);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 2rem;
+	}
+
+	.hero-banner__content {
+		position: relative;
+		z-index: 1;
+		text-align: center;
+		color: #fff;
+		max-width: 800px;
+		width: 100%;
+	}
+
+	.hero-banner__tagline {
+		font-size: 1rem;
+		font-weight: 500;
+		text-transform: uppercase;
+		letter-spacing: 2px;
+		margin: 0 0 1rem;
+		opacity: 0.9;
+	}
+
+	.hero-banner__heading {
+		font-size: clamp(2rem, 5vw, 3.5rem);
+		font-weight: 700;
+		line-height: 1.2;
+		margin: 0 0 1.5rem;
+		text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+	}
+
+	.hero-banner__description {
+		font-size: 1.125rem;
+		line-height: 1.6;
+		margin: 0 0 2rem;
+		opacity: 0.95;
+	}
+
+	.hero-banner__button-wrapper {
+		margin-top: 2rem;
+	}
+
+	.hero-banner__button {
+		display: inline-block;
+		padding: 1rem 2.5rem;
+		font-size: 1rem;
+		font-weight: 600;
+		text-decoration: none;
+		color: #fff;
+		background-color: #0073aa;
+		border-radius: 4px;
+		transition: all 0.3s ease;
+		cursor: pointer;
+
+		&:hover {
+			background-color: #005177;
+			transform: translateY(-2px);
+			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+		}
+
+		&:focus {
+			outline: 2px solid #fff;
+			outline-offset: 2px;
+		}
+	}
+
+	// Responsive adjustments
+	@media (max-width: 768px) {
+		min-height: 400px;
+
+		.hero-banner__overlay {
+			padding: 1.5rem;
+		}
+
+		.hero-banner__tagline {
+			font-size: 0.875rem;
+		}
+
+		.hero-banner__description {
+			font-size: 1rem;
+		}
+
+		.hero-banner__button {
+			padding: 0.875rem 2rem;
+			font-size: 0.9375rem;
+		}
+	}
+}
