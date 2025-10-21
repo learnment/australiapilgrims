@@ -1,0 +1,18 @@
+root /var/www/html;
+index index.htm index.html index.php;
+
+location / {
+    try_files $uri $uri/ /index.php$is_args$args;
+}
+
+location ~ /\.ht {
+    deny all;
+}
+
+location ~* \.(ico|css|js|gif|jpeg|jpg|png|woff|ttf|otf|svg|woff2|eot)$ {
+    expires 1d;
+    access_log off;
+    add_header Pragma public;
+    add_header Cache-Control "public, max-age=86400";
+    add_header X-Asset "yes";
+}
