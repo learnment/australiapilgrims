@@ -1,0 +1,117 @@
+/**
+ * The following styles get applied both on the front of your site
+ * and in the editor.
+ *
+ * Replace them with your own styles or remove the file completely.
+ */
+
+.wp-block-australiapilgrims-three-col-post-categories {
+	.three-col-post-categories__grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		margin: 0;
+		padding: 0;
+
+		@media (max-width: 768px) {
+			grid-template-columns: 1fr;
+		}
+
+		@media (min-width: 769px) and (max-width: 1024px) {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+
+	.three-col-post-categories__item {
+		position: relative;
+		height: 30dvh;
+		overflow: hidden;
+		text-decoration: none;
+		color: inherit;
+		display: block;
+		transition: transform 0.3s ease, box-shadow 0.3s ease;
+
+		&:hover {
+			transform: translateY(-4px);
+			box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+		}
+
+		&:focus {
+			outline: 2px solid currentColor;
+			outline-offset: 2px;
+		}
+	}
+
+	.three-col-post-categories__image {
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		background-size: cover;
+		background-position: center;
+		background-repeat: no-repeat;
+
+		&::after {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			background: linear-gradient(
+				to bottom,
+				rgba(0, 0, 0, 0.1) 0%,
+				rgba(0, 0, 0, 0.6) 100%
+			);
+			transition: opacity 0.3s ease;
+		}
+
+		&--placeholder {
+			background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+
+			&::after {
+				display: none;
+			}
+		}
+	}
+
+	.three-col-post-categories__placeholder-text {
+		color: rgba(255, 255, 255, 0.7);
+		font-size: 0.875rem;
+		text-align: center;
+		z-index: 1;
+		position: relative;
+	}
+
+	.three-col-post-categories__content {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		padding: 1.5rem;
+		color: #fff;
+		z-index: 1;
+	}
+
+	.three-col-post-categories__title {
+		margin: 0 0 0.5rem 0;
+		font-size: 1.5rem;
+		font-weight: 700;
+		line-height: 1.2;
+		color: #fff;
+	}
+
+	.three-col-post-categories__count {
+		display: inline-block;
+		padding: 0.25rem 0.75rem;
+		background: rgba(255, 255, 255, 0.2);
+		backdrop-filter: blur(10px);
+		border-radius: 4px;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #fff;
+	}
+}

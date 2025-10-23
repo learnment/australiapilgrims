@@ -1,0 +1,16 @@
+/**
+ * The following styles get applied inside the editor only.
+ *
+ * Replace them with your own styles or remove the file completely.
+ */
+
+.wp-block-australiapilgrims-three-col-post-categories {
+	// Editor-specific styles
+	.three-col-post-categories__item {
+		cursor: default;
+
+		&:hover {
+			transform: none;
+		}
+	}
+}

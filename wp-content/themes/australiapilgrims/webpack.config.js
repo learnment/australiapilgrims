@@ -1,7 +1,7 @@
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 const CssMinimizerPlugin = require("css-minimizer-webpack-plugin");
 const { sync: glob } = require("fast-glob");
-const { dirname, resolve, sep, join } = require("path");
+const { dirname, basename, resolve, sep, join } = require("path");
 const { chdir, cwd } = require("process");
 const { Chalk } = require("chalk");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
@@ -64,13 +64,21 @@ const exceptModules = new Set([
   require.resolve("copy-webpack-plugin"),
 ]);
 
-function generateBlockBuilderWebpackConfigs() {
+function generateBlockBuilderWebpackConfigs(env, argv) {
   console.log(chalk.yellow("Starting pre-config"));
 
   const currentDirectory = cwd();
+  const isProduction = argv.mode === "production";
+
+  if (isProduction) {
+    process.env.NODE_ENV = "production";
+  }
+
+  process.env.WP_BLOCKS_MANIFEST = "1";
 
   const configs = blockMetadataFiles.map((blockMetadataFile) => {
     const blockDirectory = dirname(dirname(dirname(blockMetadataFile)));
+    const blockName = basename(dirname(blockMetadataFile));
 
     const wpWebpackConfig = require.resolve(
       "@wordpress/scripts/config/webpack.config"
@@ -91,9 +99,9 @@ function generateBlockBuilderWebpackConfigs() {
 
     console.log(`Creating config for ${blockDirectory}`);
 
-    const copyPlugin = defaultConfig.plugins.find(
-      (plugin) => plugin instanceof CopyWebpackPlugin
-    );
+    const copyPlugin = defaultConfig.plugins.find((plugin) => {
+      return plugin.constructor.name === "CopyPlugin" && "patterns" in plugin;
+    });
 
     if (copyPlugin) {
       copyPlugin.patterns = copyPlugin.patterns.map((pattern) => {
@@ -120,12 +128,13 @@ function generateBlockBuilderWebpackConfigs() {
   return configs;
 }
 
-const themeWebpackConfig = (env, argv) => {
+module.exports = (env, argv) => {
   const isProduction = argv.mode === "production";
 
-  return {
+  const themeWebpackConfig = {
     entry: {
       "js/main": "./src/js/main.js",
+      "js/category-thumbnail": "./src/js/admin/category-thumbnail.js",
       "css/styles": "./src/scss/main.scss",
     },
     output: {
@@ -184,13 +193,13 @@ const themeWebpackConfig = (env, argv) => {
       publicPath: false,
     },
   };
+
+  const webpackConfig = [
+    ...generateBlockBuilderWebpackConfigs(env, argv),
+    themeWebpackConfig,
+  ];
+
+  console.log(chalk.yellow("Compilation start"));
+
+  return webpackConfig;
 };
-
-const webpackConfig = [
-  ...generateBlockBuilderWebpackConfigs(),
-  themeWebpackConfig,
-];
-
-console.log(chalk.yellow("Compilation start"));
-
-module.exports = webpackConfig;
