@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "webpack --mode development --watch",
-    "build": "build:blocks && webpack --mode production",
+    "build": "webpack --mode production",
     "watch": "webpack --mode production --watch",
     "build:blocks": "wp-scripts build blocks/hero-banner/index.js --output-path=blocks/hero-banner",
     "start:blocks": "wp-scripts start blocks/hero-banner/index.js --output-path=blocks/hero-banner"
