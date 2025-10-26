@@ -74,7 +74,7 @@ body.newsletter-template {
     background-color: #f8efe4; // Cream document background
     max-width: 1334px;
     margin: 20px auto;
-    padding: 16px;
+    padding: 16px 48px;
     min-height: 99vh;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   }
@@ -176,6 +176,11 @@ body.newsletter-template .site-content {
 
 .vintage-filter-subtle {
   filter: sepia(40%) contrast(90%) brightness(102%) saturate(95%);
+}
+
+figure.has-borders {
+  border: 1px solid #000;
+  padding: 16px;
 }
 
 .contained-image {

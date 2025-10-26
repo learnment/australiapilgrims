@@ -10,6 +10,7 @@
         "@wordpress/components": "^25.0.0",
         "@wordpress/element": "^5.0.0",
         "@wordpress/i18n": "^4.0.0",
+        "classnames": "^2.5.1",
       },
       "devDependencies": {
         "@babel/core": "^7.23.0",
