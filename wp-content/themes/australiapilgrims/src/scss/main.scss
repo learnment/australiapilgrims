@@ -3,8 +3,8 @@
  * Australia Pilgrims Theme
  */
 
-/* Import fonts */
 @import "fonts";
+@import "gutenberg-blocks";
 
 /* Reset and basic styles */
 * {
@@ -123,7 +123,6 @@ body.newsletter-template .site-content {
     font-family: "Arapey", Georgia, "Times New Roman", serif;
     font-size: 1.25rem;
     line-height: 1.6em;
-    text-align: left;
     margin-bottom: 1rem;
   }
 
