@@ -6,8 +6,12 @@
 .wp-block-australiapilgrims-two-col-image-content {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
-	gap: 2rem;
+	gap: 20px;
 	align-items: center;
+
+	@media (max-width: 1024px) {
+		grid-template-columns: 1fr;
+	}
 
 	&.two-col-image-content--left {
 		.two-col-image-content__image {
@@ -18,6 +22,21 @@
 		.two-col-image-content__content {
 			grid-column: 2;
 			grid-row: 1;
+		}
+
+		@media (max-width: 1024px) {
+			.two-col-image-content__image,
+			.two-col-image-content__content {
+				grid-column: 1;
+			}
+
+			.two-col-image-content__image {
+				grid-row: 1;
+			}
+
+			.two-col-image-content__content {
+				grid-row: 2;
+			}
 		}
 	}
 
@@ -30,6 +49,21 @@
 		.two-col-image-content__content {
 			grid-column: 1;
 			grid-row: 1;
+		}
+
+		@media (max-width: 1024px) {
+			.two-col-image-content__image,
+			.two-col-image-content__content {
+				grid-column: 1;
+			}
+
+			.two-col-image-content__image {
+				grid-row: 1;
+			}
+
+			.two-col-image-content__content {
+				grid-row: 2;
+			}
 		}
 	}
 
