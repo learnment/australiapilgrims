@@ -1,0 +1,90 @@
+/**
+ * The following styles get applied both on the front of your site
+ * and in the editor.
+ */
+
+.wp-block-australiapilgrims-two-col-image-content {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 2rem;
+	align-items: center;
+
+	@media (max-width: 768px) {
+		grid-template-columns: 1fr;
+		gap: 1.5rem;
+	}
+
+	&.two-col-image-content--left {
+		.two-col-image-content__image {
+			grid-column: 1;
+			grid-row: 1;
+		}
+
+		.two-col-image-content__content {
+			grid-column: 2;
+			grid-row: 1;
+		}
+
+		@media (max-width: 768px) {
+			.two-col-image-content__image,
+			.two-col-image-content__content {
+				grid-column: 1;
+			}
+
+			.two-col-image-content__image {
+				grid-row: 1;
+			}
+
+			.two-col-image-content__content {
+				grid-row: 2;
+			}
+		}
+	}
+
+	&.two-col-image-content--right {
+		.two-col-image-content__image {
+			grid-column: 2;
+			grid-row: 1;
+		}
+
+		.two-col-image-content__content {
+			grid-column: 1;
+			grid-row: 1;
+		}
+
+		@media (max-width: 768px) {
+			.two-col-image-content__image,
+			.two-col-image-content__content {
+				grid-column: 1;
+			}
+
+			.two-col-image-content__image {
+				grid-row: 1;
+			}
+
+			.two-col-image-content__content {
+				grid-row: 2;
+			}
+		}
+	}
+
+	.two-col-image-content__image {
+		img {
+			width: 100%;
+			height: auto;
+			display: block;
+			object-fit: cover;
+		}
+	}
+
+	.two-col-image-content__content {
+		.two-col-image-content__heading {
+			margin-top: 0;
+			margin-bottom: 1rem;
+		}
+
+		.two-col-image-content__text {
+			margin-bottom: 0;
+		}
+	}
+}

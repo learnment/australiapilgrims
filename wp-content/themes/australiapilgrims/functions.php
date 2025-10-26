@@ -113,3 +113,4 @@ require_once __DIR__ . '/blocks/hero-banner/hero-banner.php';
 require_once __DIR__ . '/blocks/three-col-post-categories/three-col-post-categories.php';
 require_once __DIR__ . '/blocks/divider/divider.php';
 require_once __DIR__ . '/blocks/alternating-post-list/alternating-post-list.php';
+require_once __DIR__ . '/blocks/two-col-image-content/two-col-image-content.php';

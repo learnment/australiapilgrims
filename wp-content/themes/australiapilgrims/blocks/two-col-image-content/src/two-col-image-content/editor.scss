@@ -1,0 +1,18 @@
+/**
+ * The following styles get applied inside the editor only.
+ */
+
+.wp-block-australiapilgrims-two-col-image-content {
+	.two-col-image-content__placeholder {
+		background-color: #f0f0f0;
+		border: 2px dashed #ccc;
+		padding: 3rem 1rem;
+		text-align: center;
+		color: #757575;
+		font-size: 0.9rem;
+		min-height: 200px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+}

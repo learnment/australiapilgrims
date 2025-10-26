@@ -1,0 +1,58 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "australiapilgrims/two-col-image-content",
+	"version": "0.1.0",
+	"title": "Two Column Image & Content",
+	"category": "design",
+	"icon": "columns",
+	"description": "A two-column layout with image and content that can be positioned left or right.",
+	"keywords": ["columns", "image", "content", "two-column"],
+	"attributes": {
+		"image": {
+			"type": "object",
+			"default": {
+				"id": 0,
+				"url": "",
+				"alt": "",
+				"width": 0,
+				"height": 0,
+				"sizes": {}
+			}
+		},
+		"imageClasses": {
+			"type": "string",
+			"default": ""
+		},
+		"heading": {
+			"type": "string",
+			"default": ""
+		},
+		"content": {
+			"type": "string",
+			"default": ""
+		},
+		"imagePosition": {
+			"type": "string",
+			"default": "left",
+			"enum": ["left", "right"]
+		}
+	},
+	"example": {
+		"attributes": {
+			"heading": "Our Story",
+			"content": "Discover the journey that has brought us here.",
+			"imagePosition": "left"
+		}
+	},
+	"supports": {
+		"html": false,
+		"align": ["wide", "full"],
+		"anchor": true
+	},
+	"textdomain": "two-col-image-content",
+	"editorScript": "file:./index.js",
+	"editorStyle": "file:./index.css",
+	"style": "file:./style-index.css",
+	"viewScript": "file:./view.js"
+}
