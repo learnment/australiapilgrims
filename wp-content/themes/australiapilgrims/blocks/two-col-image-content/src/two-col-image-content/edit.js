@@ -16,7 +16,7 @@ import {
 	InspectorControls,
 	MediaUpload,
 	MediaUploadCheck,
-	RichText,
+	InnerBlocks,
 } from '@wordpress/block-editor';
 
 /**
@@ -42,7 +42,7 @@ import './editor.scss';
  * @return {Element} Element to render.
  */
 export default function Edit({ attributes, setAttributes }) {
-	const { image, imageClasses, heading, content, imagePosition } = attributes;
+	const { image, imageClasses, imagePosition } = attributes;
 
 	const blockProps = useBlockProps({
 		className: `two-col-image-content two-col-image-content--${imagePosition}`,
@@ -154,19 +154,11 @@ export default function Edit({ attributes, setAttributes }) {
 					)}
 				</div>
 				<div className="two-col-image-content__content">
-					<RichText
-						tagName="h3"
-						className="two-col-image-content__heading"
-						value={heading}
-						onChange={(value) => setAttributes({ heading: value })}
-						placeholder={__('Enter heading...', 'two-col-image-content')}
-					/>
-					<RichText
-						tagName="p"
-						className="two-col-image-content__text"
-						value={content}
-						onChange={(value) => setAttributes({ content: value })}
-						placeholder={__('Enter content...', 'two-col-image-content')}
+					<InnerBlocks
+						template={[
+							['core/heading', { level: 3, placeholder: 'Enter heading...' }],
+							['core/paragraph', { placeholder: 'Enter content...' }],
+						]}
 					/>
 				</div>
 			</div>

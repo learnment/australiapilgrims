@@ -4,7 +4,7 @@
  *
  * @see https://developer.wordpress.org/block-editor/reference-guides/packages/packages-block-editor/#useblockprops
  */
-import { useBlockProps, RichText } from "@wordpress/block-editor";
+import { useBlockProps, InnerBlocks } from "@wordpress/block-editor";
 
 /**
  * Generate srcset string from WordPress image sizes
@@ -56,7 +56,7 @@ function generateSizesAttr() {
  * @return {Element} Element to render.
  */
 export default function save({ attributes }) {
-	const { image, imageClasses, heading, content, imagePosition } = attributes;
+	const { image, imageClasses, imagePosition } = attributes;
 
 	const blockProps = useBlockProps.save({
 		className: `two-col-image-content two-col-image-content--${imagePosition}`,
@@ -86,20 +86,7 @@ export default function save({ attributes }) {
 				)}
 			</div>
 			<div className="two-col-image-content__content">
-				{heading && (
-					<RichText.Content
-						tagName="h3s"
-						className="two-col-image-content__heading"
-						value={heading}
-					/>
-				)}
-				{content && (
-					<RichText.Content
-						tagName="p"
-						className="two-col-image-content__text"
-						value={content}
-					/>
-				)}
+				<InnerBlocks.Content />
 			</div>
 		</div>
 	);

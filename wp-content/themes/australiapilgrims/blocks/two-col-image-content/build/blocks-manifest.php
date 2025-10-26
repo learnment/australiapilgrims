@@ -34,14 +34,6 @@ return array(
 				'type' => 'string',
 				'default' => ''
 			),
-			'heading' => array(
-				'type' => 'string',
-				'default' => ''
-			),
-			'content' => array(
-				'type' => 'string',
-				'default' => ''
-			),
 			'imagePosition' => array(
 				'type' => 'string',
 				'default' => 'left',
@@ -53,8 +45,6 @@ return array(
 		),
 		'example' => array(
 			'attributes' => array(
-				'heading' => 'Our Story',
-				'content' => 'Discover the journey that has brought us here.',
 				'imagePosition' => 'left'
 			)
 		),

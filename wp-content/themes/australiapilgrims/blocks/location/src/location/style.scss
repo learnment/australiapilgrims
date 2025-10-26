@@ -1,0 +1,27 @@
+/**
+ * The following styles get applied both on the front of your site
+ * and in the editor.
+ *
+ * Replace them with your own styles or remove the file completely.
+ */
+
+.wp-block-australiapilgrims-location {
+	&.location-block {
+		display: flex;
+		align-items: flex-start;
+		gap: 4px;
+
+		.location-pin {
+			flex-shrink: 0;
+			margin-top: 0.25rem;
+
+			svg {
+				display: block;
+			}
+		}
+
+		.location-address {
+			flex: 1;
+		}
+	}
+}
