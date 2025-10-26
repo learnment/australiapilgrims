@@ -144,26 +144,6 @@ body.newsletter-template .site-content {
   }
 }
 
-// Responsive adjustments
-@media (max-width: 768px) {
-  body.category .site-content,
-  body.newsletter-template .site-content {
-    width: 95%;
-    margin: 50px auto;
-    padding: 20px;
-  }
-
-  .category-block-content h1,
-  body.newsletter-template .site-content h1 {
-    font-size: 2rem;
-  }
-
-  .category-block-content h2,
-  body.newsletter-template .site-content h2 {
-    font-size: 1.25rem;
-  }
-}
-
 .vintage-filter {
   filter: sepia(70%) contrast(85%) brightness(105%) saturate(90%);
   transition: filter 0.3s ease;
