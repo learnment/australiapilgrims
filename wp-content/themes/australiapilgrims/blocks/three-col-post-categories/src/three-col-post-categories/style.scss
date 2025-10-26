@@ -11,6 +11,10 @@
     grid-template-columns: repeat(3, 1fr);
     margin: 0;
     padding: 0;
+
+    @media (max-width: 768px) {
+      grid-template-columns: 1fr;
+    }
   }
 
   .three-col-post-categories__item {
@@ -23,6 +27,10 @@
     transition:
       transform 0.3s ease,
       box-shadow 0.3s ease;
+
+    @media (max-width: 768px) {
+      height: 240px;
+    }
 
     &:hover {
       transform: translateY(-4px);
@@ -82,7 +90,8 @@
 
   .three-col-post-categories__content {
     position: absolute;
-    top: calc(50% - 0.8rem);
+    top: 50%;
+    transform: translateY(-50%);
     left: 0;
     right: 0;
     padding: 1.5rem;
