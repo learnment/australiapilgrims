@@ -3,11 +3,21 @@
 	"apiVersion": 3,
 	"name": "australiapilgrims/three-col-post-categories",
 	"version": "0.1.0",
-	"title": "Three Column Post Categories",
+	"title": "Three Column Featured Items",
 	"category": "widgets",
 	"icon": "grid-view",
-	"description": "Display the top 3 post categories with thumbnail images in a grid layout.",
-	"keywords": ["categories", "grid", "thumbnails"],
+	"description": "Display 3 featured items with custom backgrounds and links to pages.",
+	"keywords": ["featured", "grid", "thumbnails", "pages"],
+	"attributes": {
+		"items": {
+			"type": "array",
+			"default": [
+				{"title": "", "backgroundUrl": "", "backgroundId": 0, "pageId": 0, "url": ""},
+				{"title": "", "backgroundUrl": "", "backgroundId": 0, "pageId": 0, "url": ""},
+				{"title": "", "backgroundUrl": "", "backgroundId": 0, "pageId": 0, "url": ""}
+			]
+		}
+	},
 	"supports": {
 		"html": false,
 		"align": ["wide", "full"],

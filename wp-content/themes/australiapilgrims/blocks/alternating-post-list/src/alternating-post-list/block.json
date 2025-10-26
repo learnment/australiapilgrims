@@ -1,0 +1,27 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "australiapilgrims/alternating-post-list",
+	"version": "0.1.0",
+	"title": "Alternating Post List",
+	"category": "widgets",
+	"icon": "excerpt-view",
+	"description": "Display selected posts in an alternating left-right layout with images and excerpts.",
+	"keywords": ["posts", "alternating", "grid", "featured"],
+	"attributes": {
+		"selectedPosts": {
+			"type": "array",
+			"default": []
+		}
+	},
+	"supports": {
+		"html": false,
+		"align": ["wide", "full"],
+		"anchor": true
+	},
+	"textdomain": "alternating-post-list",
+	"editorScript": "file:./index.js",
+	"editorStyle": "file:./index.css",
+	"style": "file:./style-index.css",
+	"render": "file:./render.php"
+}

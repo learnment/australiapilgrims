@@ -1,0 +1,29 @@
+/**
+ * Vintage newsletter divider styles
+ * Based on classic newsletter design with cream background and dark rules
+ */
+
+.wp-block-australiapilgrims-divider {
+	border: none;
+	margin: 1.5rem auto;
+	width: 100%;
+
+	// Thin variant - single 2px line
+	&.is-variant-thin {
+		border-top: 2px solid #2c2c2c;
+		height: 0;
+	}
+
+	// Thick variant - single 6px line
+	&.is-variant-thick {
+		border-top: 6px solid #2c2c2c;
+		height: 0;
+	}
+
+	// Thick with thin line variant - 6px line with 2px line below
+	&.is-variant-thick-with-thin {
+		border-top: 6px solid #2c2c2c;
+		border-bottom: 2px solid #2c2c2c;
+		padding-bottom: 4px;
+	}
+}

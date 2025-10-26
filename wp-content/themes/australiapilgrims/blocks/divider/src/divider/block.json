@@ -1,0 +1,30 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "australiapilgrims/divider",
+	"version": "0.1.0",
+	"title": "Divider",
+	"category": "design",
+	"icon": "minus",
+	"description": "A decorative horizontal rule with vintage newsletter styling - thin, thick, or thick with thin line variants.",
+	"example": {},
+	"attributes": {
+		"variant": {
+			"type": "string",
+			"default": "thin"
+		}
+	},
+	"supports": {
+		"html": false,
+		"align": ["wide", "full"],
+		"spacing": {
+			"margin": true,
+			"padding": false
+		}
+	},
+	"textdomain": "divider",
+	"editorScript": "file:./index.js",
+	"editorStyle": "file:./index.css",
+	"style": "file:./style-index.css",
+	"viewScript": "file:./view.js"
+}

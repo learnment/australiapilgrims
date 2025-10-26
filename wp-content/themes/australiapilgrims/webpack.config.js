@@ -135,6 +135,7 @@ module.exports = (env, argv) => {
     entry: {
       "js/main": "./src/js/main.js",
       "js/category-thumbnail": "./src/js/admin/category-thumbnail.js",
+      "js/category-block-editor": "./src/js/admin/category-block-editor.js",
       "css/styles": "./src/scss/main.scss",
     },
     output: {
@@ -166,6 +167,11 @@ module.exports = (env, argv) => {
       "@wordpress/components": ["wp", "components"],
       "@wordpress/element": ["wp", "element"],
       "@wordpress/i18n": ["wp", "i18n"],
+      "@wordpress/data": ["wp", "data"],
+      "@wordpress/editor": ["wp", "editor"],
+      "@wordpress/plugins": ["wp", "plugins"],
+      "@wordpress/edit-post": ["wp", "editPost"],
+      "@wordpress/block-library": ["wp", "blockLibrary"],
     },
     plugins: [
       new MiniCssExtractPlugin({

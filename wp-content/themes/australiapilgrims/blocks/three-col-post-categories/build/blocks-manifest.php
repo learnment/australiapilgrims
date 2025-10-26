@@ -6,14 +6,43 @@ return array(
 		'apiVersion' => 3,
 		'name' => 'australiapilgrims/three-col-post-categories',
 		'version' => '0.1.0',
-		'title' => 'Three Column Post Categories',
+		'title' => 'Three Column Featured Items',
 		'category' => 'widgets',
 		'icon' => 'grid-view',
-		'description' => 'Display the top 3 post categories with thumbnail images in a grid layout.',
+		'description' => 'Display 3 featured items with custom backgrounds and links to pages.',
 		'keywords' => array(
-			'categories',
+			'featured',
 			'grid',
-			'thumbnails'
+			'thumbnails',
+			'pages'
+		),
+		'attributes' => array(
+			'items' => array(
+				'type' => 'array',
+				'default' => array(
+					array(
+						'title' => '',
+						'backgroundUrl' => '',
+						'backgroundId' => 0,
+						'pageId' => 0,
+						'url' => ''
+					),
+					array(
+						'title' => '',
+						'backgroundUrl' => '',
+						'backgroundId' => 0,
+						'pageId' => 0,
+						'url' => ''
+					),
+					array(
+						'title' => '',
+						'backgroundUrl' => '',
+						'backgroundId' => 0,
+						'pageId' => 0,
+						'url' => ''
+					)
+				)
+			)
 		),
 		'supports' => array(
 			'html' => false,
