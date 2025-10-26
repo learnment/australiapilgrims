@@ -149,7 +149,9 @@ export default function Edit({ attributes, setAttributes }) {
                     <LinkControl
                       value={{ url: item.url }}
                       onChange={(newValue) => {
-                        updateItems(index, "url", newValue.url || "");
+                        updateItems(index, {
+                          url: newValue.url || "",
+                        });
                       }}
                       settings={[]}
                     />
