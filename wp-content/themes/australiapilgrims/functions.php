@@ -105,6 +105,7 @@ add_action( 'enqueue_block_editor_assets', 'australiapilgrims_editor_styles' );
  */
 require_once __DIR__ . '/inc/category-thumbnail.php';
 require_once __DIR__ . '/inc/category-block-content.php';
+require_once __DIR__ . '/inc/comments.php';
 
 /**
  * Register custom blocks

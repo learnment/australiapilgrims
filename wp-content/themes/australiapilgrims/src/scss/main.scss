@@ -176,3 +176,21 @@ figure.has-borders {
   margin-left: auto;
   margin-right: auto;
 }
+
+.btn-primary {
+  background-color: #0073aa;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-block;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 14px;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  border: none;
+
+  &:hover {
+    background-color: #005177;
+  }
+}
