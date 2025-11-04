@@ -1,0 +1,209 @@
+/**
+ * The following styles get applied both on the front of your site
+ * and in the editor.
+ */
+
+.block-australiapilgrims-three-column__inner-container {
+	display: grid;
+	grid-template-columns: auto 1fr auto;
+	grid-template-areas: "left centre right";
+	gap: 16px;
+
+	.block-australiapilgrims-three-column--left-hidden,
+	.wp-block-australiapilgrims-three-column-item:nth-child(3) {
+		grid-area: right;
+	}
+
+	.wp-block-australiapilgrims-three-column-item:nth-child(1),
+	.block-australiapilgrims-three-column--right-hidden {
+		grid-area: left;
+	}
+
+	.block-australiapilgrims-three-column--left-hidden,
+	.block-australiapilgrims-three-column--right-hidden {
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.wp-block-australiapilgrims-three-column-item:nth-child(1),
+	.wp-block-australiapilgrims-three-column-item:nth-child(3) {
+		display: flex;
+		align-items: center;
+	}
+
+	.wp-block-australiapilgrims-three-column-item:nth-child(2) {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+}
+
+headasdfer {
+	z-index: 3;
+	position: sticky;
+	top: var(--gap);
+	display: grid;
+	grid-template-columns: auto 1fr auto;
+	grid-template-areas: "left centre right";
+	gap: var(--gap);
+	height: 4rem;
+	padding: 0 var(--gap);
+	background: var(--card-background-transparent);
+	backdrop-filter: blur(10px);
+
+	.left.hidden,
+	.right:not(.hidden) {
+		grid-area: right;
+	}
+
+	.left:not(.hidden),
+	.right.hidden {
+		grid-area: left;
+	}
+
+	.hidden {
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.left,
+	.right {
+		display: flex;
+		align-items: center;
+	}
+
+	@media (max-width: 550px) {
+		.hidden {
+			display: none;
+		}
+	}
+
+	.left {
+		a {
+			display: flex;
+			align-items: center;
+			color: inherit;
+			text-decoration: none;
+			gap: calc(var(--gap) / 2);
+
+			&:hover {
+				color: #444;
+			}
+
+			img,
+			.image {
+				width: 2rem;
+				height: 2rem;
+			}
+
+			h1 {
+				margin: 0;
+			}
+
+			@media (max-width: 550px) {
+				justify-content: center;
+
+				h1 {
+					display: none;
+				}
+			}
+		}
+	}
+
+	.centre {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+
+		.search {
+			width: 100%;
+			max-width: 60ch;
+
+			.search_box {
+				position: relative;
+
+				input {
+					flex-grow: 1;
+					background: none;
+					min-width: 0px;
+					width: calc(100% - 4px);
+					padding: 0.25rem 0;
+					border-radius: 0.5rem;
+					border: 2px solid var(--input-dark);
+					background: var(--input-dark);
+					font-size: 1.5rem;
+					text-align: center;
+					transition: 0.25s;
+
+					&::placeholder {
+						color: #333;
+					}
+
+					&:focus,
+					&:not(:placeholder-shown) {
+						background: white;
+						outline: none;
+
+						&::placeholder {
+							color: #3330;
+						}
+
+						~ button {
+							color: black;
+							pointer-events: initial;
+
+							&:hover {
+								background: var(--input-darker);
+							}
+						}
+					}
+				}
+
+				button {
+					position: absolute;
+					top: calc(var(--gap) / 2);
+					bottom: calc(var(--gap) / 2);
+					right: calc(var(--gap) / 2);
+					aspect-ratio: 1;
+					border: none;
+					border-radius: 0.25rem;
+					background: var(--input-dark);
+					color: #0000;
+					pointer-events: none;
+					font-size: 1.5rem;
+					line-height: 1rem;
+					transition: 0.25s;
+				}
+			}
+		}
+	}
+
+	.right {
+		justify-content: flex-end;
+		gap: 0.5rem;
+
+		button,
+		.button {
+			width: 2rem;
+			aspect-ratio: 1;
+		}
+
+		button {
+			border: none;
+			border-radius: 0.5rem;
+			background: var(--input-dark);
+			cursor: pointer;
+			transition: 0.25s;
+
+			&:hover {
+				background: var(--input-darker);
+			}
+		}
+
+		@media (max-width: 450px) {
+			button:not(:last-child) {
+				display: none;
+			}
+		}
+	}
+}

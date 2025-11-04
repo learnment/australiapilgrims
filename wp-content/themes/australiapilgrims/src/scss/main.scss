@@ -47,6 +47,12 @@ a[target="_blank"]:hover::after {
 
   a {
     word-break: break-all;
+    color: #d96c32;
+    text-underline-offset: 3px;
+
+    &:hover {
+      color: #bf5a28;
+    }
   }
 }
 
@@ -132,6 +138,17 @@ body.newsletter-template .site-content {
     font-size: 1.25rem;
     line-height: 1.6em;
     margin-bottom: 1rem;
+
+    &.v-align {
+      display: inline-flex;
+      align-items: center;
+
+      > a {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+    }
   }
 
   // Images

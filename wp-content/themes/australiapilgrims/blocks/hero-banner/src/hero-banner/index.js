@@ -25,6 +25,7 @@ import metadata from "./block.json";
 
 import { registerBlockExtension } from "@10up/block-components";
 import ImageExtensionsEdit from "./image-extensions/edit";
+import ParagraphExtensionsEdit from "./paragraph-extensions/edit";
 
 /**
  * Every block starts by registering a new block type definition.
@@ -65,4 +66,23 @@ registerBlockExtension("core/image", {
 		return additionalClassNames;
 	},
 	Edit: ImageExtensionsEdit,
+});
+
+registerBlockExtension("core/paragraph", {
+	extensionName: "paragraph-extensions",
+	attributes: {
+		verticallyAligned: {
+			type: "boolean",
+			default: false,
+		},
+	},
+	classNameGenerator: (attributes) => {
+		const { verticallyAligned } = attributes;
+		const additionalClassNames = classNames({
+			"v-align": verticallyAligned,
+		});
+
+		return additionalClassNames;
+	},
+	Edit: ParagraphExtensionsEdit,
 });

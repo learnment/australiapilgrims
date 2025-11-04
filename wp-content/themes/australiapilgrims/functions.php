@@ -116,3 +116,5 @@ require_once __DIR__ . '/blocks/divider/divider.php';
 require_once __DIR__ . '/blocks/alternating-post-list/alternating-post-list.php';
 require_once __DIR__ . '/blocks/two-col-image-content/two-col-image-content.php';
 require_once __DIR__ . '/blocks/location/location.php';
+require_once __DIR__ . '/blocks/three-column/three-column.php';
+require_once __DIR__ . '/blocks/three-column-item/three-column-item.php';
