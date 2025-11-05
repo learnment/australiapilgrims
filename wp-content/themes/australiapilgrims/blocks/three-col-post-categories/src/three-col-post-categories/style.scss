@@ -28,6 +28,18 @@
       transform 0.3s ease,
       box-shadow 0.3s ease;
 
+    &.three-col-post-categories__item--column-one {
+      grid-column: 1;
+    }
+
+    &.three-col-post-categories__item--column-two {
+      grid-column: 2;
+    }
+
+    &.three-col-post-categories__item--column-three {
+      grid-column: 3;
+    }
+
     @media (max-width: 768px) {
       height: 240px;
     }

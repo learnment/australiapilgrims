@@ -22,10 +22,23 @@ $wrapper_attributes = get_block_wrapper_attributes(array(
 
 <div <?php echo $wrapper_attributes; ?>>
 	<div class="three-col-post-categories__grid">
+		<?php
+		$column = 1;
+		?>
 		<?php foreach ($items as $item) :
 			$title = isset($item['title']) ? $item['title'] : '';
 			$background_url = isset($item['backgroundUrl']) ? $item['backgroundUrl'] : '';
 			$url = isset($item['url']) ? $item['url'] : '';
+
+			$column_class = 'three-col-post-categories__item--column-one';
+			switch ($column) {
+				case 2:
+					$column_class = 'three-col-post-categories__item--column-two';
+					break;
+				case 3:
+					$column_class = 'three-col-post-categories__item--column-three';
+					break;
+			}
 
 			// Skip items without a title or URL
 			if (empty($title) || empty($url)) {
@@ -42,6 +55,7 @@ $wrapper_attributes = get_block_wrapper_attributes(array(
 					<h2 class="three-col-post-categories__title"><?php echo esc_html($title); ?></h2>
 				</div>
 			</a>
+			<?php $column++ ?>
 		<?php endforeach; ?>
 	</div>
 </div>
