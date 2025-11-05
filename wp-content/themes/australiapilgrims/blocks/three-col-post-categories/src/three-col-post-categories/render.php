@@ -39,6 +39,7 @@ $wrapper_attributes = get_block_wrapper_attributes(array(
 					$column_class = 'three-col-post-categories__item--column-three';
 					break;
 			}
+			$column++;
 
 			// Skip items without a title or URL
 			if (empty($title) || empty($url)) {
@@ -55,7 +56,6 @@ $wrapper_attributes = get_block_wrapper_attributes(array(
 					<h2 class="three-col-post-categories__title"><?php echo esc_html($title); ?></h2>
 				</div>
 			</a>
-			<?php $column++ ?>
 		<?php endforeach; ?>
 	</div>
 </div>
