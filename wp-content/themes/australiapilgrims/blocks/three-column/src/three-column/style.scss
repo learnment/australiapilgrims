@@ -9,6 +9,15 @@
 	grid-template-areas: "left centre right";
 	gap: 16px;
 
+	@media (max-width: 768px) {
+		grid-template-columns: 1fr;
+		grid-template-areas:
+			"left"
+			"centre"
+			"right";
+		gap: 6px;
+	}
+
 	.block-australiapilgrims-three-column--left-hidden,
 	.wp-block-australiapilgrims-three-column-item:nth-child(3) {
 		grid-area: right;
@@ -29,6 +38,10 @@
 	.wp-block-australiapilgrims-three-column-item:nth-child(3) {
 		display: flex;
 		align-items: center;
+
+		@media (max-width: 768px) {
+			justify-content: center;
+		}
 	}
 
 	.wp-block-australiapilgrims-three-column-item:nth-child(2) {
