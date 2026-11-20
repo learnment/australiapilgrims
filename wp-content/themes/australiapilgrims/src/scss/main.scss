@@ -218,7 +218,8 @@ figure.has-borders {
 
 /* Word-style text highlights (editor toolbar: src/js/admin/editor-highlight-format.js) */
 mark.ap-highlight-yellow,
-mark.ap-highlight-green {
+mark.ap-highlight-green,
+mark.ap-highlight-custom {
   color: inherit;
   padding: 0 0.1em;
 }
