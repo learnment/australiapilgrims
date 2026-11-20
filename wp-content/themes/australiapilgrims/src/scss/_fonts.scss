@@ -1,22 +1,23 @@
 /**
  * Font Face Declarations
  * Australia Pilgrims Theme
+ *
+ * EB Garamond (OFL, fonts/EBGaramond/OFL.txt): variable weight 400-800,
+ * subset to Latin, Latin Extended and Vietnamese. Replaces Arapey, which had no Vietnamese glyphs.
  */
 
-/* Arapey Regular */
 @font-face {
-  font-family: 'Arapey';
-  src: url('../../fonts/Arapey/Arapey-Regular.ttf') format('truetype');
-  font-weight: 400;
+  font-family: 'EB Garamond';
+  src: url('../../fonts/EBGaramond/EBGaramond.woff2') format('woff2');
+  font-weight: 400 800;
   font-style: normal;
   font-display: swap;
 }
 
-/* Arapey Italic */
 @font-face {
-  font-family: 'Arapey';
-  src: url('../../fonts/Arapey/Arapey-Italic.ttf') format('truetype');
-  font-weight: 400;
+  font-family: 'EB Garamond';
+  src: url('../../fonts/EBGaramond/EBGaramond-Italic.woff2') format('woff2');
+  font-weight: 400 800;
   font-style: italic;
   font-display: swap;
 }

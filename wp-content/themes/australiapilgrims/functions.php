@@ -101,6 +101,26 @@ function australiapilgrims_editor_styles() {
 add_action( 'enqueue_block_editor_assets', 'australiapilgrims_editor_styles' );
 
 /**
+ * Word-style text highlight toolbar button (yellow/green) for every block editor,
+ * including the custom category editor in inc/category-block-content.php.
+ */
+function australiapilgrims_register_highlight_format() {
+    wp_register_script(
+        'australiapilgrims-highlight-format',
+        get_template_directory_uri() . '/dist/js/editor-highlight-format.js',
+        array( 'wp-rich-text', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-i18n' ),
+        filemtime( get_template_directory() . '/dist/js/editor-highlight-format.js' ),
+        true
+    );
+}
+add_action( 'init', 'australiapilgrims_register_highlight_format' );
+
+function australiapilgrims_enqueue_highlight_format() {
+    wp_enqueue_script( 'australiapilgrims-highlight-format' );
+}
+add_action( 'enqueue_block_editor_assets', 'australiapilgrims_enqueue_highlight_format' );
+
+/**
  * Include custom functionality
  */
 require_once __DIR__ . '/inc/category-thumbnail.php';

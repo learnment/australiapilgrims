@@ -113,7 +113,7 @@ function ap_enqueue_category_block_editor($hook) {
     wp_enqueue_script(
         'category-block-editor',
         get_template_directory_uri() . '/dist/js/category-block-editor.js',
-        array('wp-element', 'wp-blocks', 'wp-block-editor', 'wp-data', 'wp-components', 'wp-editor'),
+        array('wp-element', 'wp-blocks', 'wp-block-editor', 'wp-data', 'wp-components', 'wp-editor', 'australiapilgrims-highlight-format'),
         filemtime(get_template_directory() . '/dist/js/category-block-editor.js'),
         true
     );

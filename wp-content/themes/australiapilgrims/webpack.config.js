@@ -136,6 +136,7 @@ module.exports = (env, argv) => {
       "js/main": "./src/js/main.js",
       "js/category-thumbnail": "./src/js/admin/category-thumbnail.js",
       "js/category-block-editor": "./src/js/admin/category-block-editor.js",
+      "js/editor-highlight-format": "./src/js/admin/editor-highlight-format.js",
       "css/styles": "./src/scss/main.scss",
     },
     output: {
@@ -167,6 +168,7 @@ module.exports = (env, argv) => {
       "@wordpress/components": ["wp", "components"],
       "@wordpress/element": ["wp", "element"],
       "@wordpress/i18n": ["wp", "i18n"],
+      "@wordpress/rich-text": ["wp", "richText"],
       "@wordpress/data": ["wp", "data"],
       "@wordpress/editor": ["wp", "editor"],
       "@wordpress/plugins": ["wp", "plugins"],
