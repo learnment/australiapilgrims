@@ -1,0 +1,919 @@
+<?php
+
+namespace PixelYourSite;
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly.
+}
+
+/**
+ * Name of the cookie our front-end script uses to hand PHP the registrable
+ * domain it computed with tldjs. See pys_cookie_domain() for why we ask the
+ * browser instead of working it out here.
+ */
+const PYS_REPORTED_DOMAIN_COOKIE = 'pys_cd';
+
+/**
+ * Value of that cookie when the browser accepted no Domain attribute at all
+ * (a public-suffix host such as example.github.io, or every candidate write
+ * refused). The front end then writes host-only, and says so: an absent
+ * cookie would read as "not answered yet" and keep PHP waiting for ever.
+ */
+const PYS_REPORTED_DOMAIN_HOST_ONLY = 'host-only';
+
+/**
+ * Reasons pys_cookie_domain_pending_reason() can give. See it for what they
+ * mean and for why nothing is allowed to branch on them.
+ */
+const PYS_COOKIE_DOMAIN_PENDING_OPTIONS  = 'options-not-loaded';
+const PYS_COOKIE_DOMAIN_PENDING_BROWSER  = 'no-browser-report';
+const PYS_COOKIE_DOMAIN_PENDING_DISABLED = 'cookies-disabled';
+
+/**
+ * The core option holding the site's cookie domain, '' when unknown.
+ *
+ * Per site, not per visitor: the answer the browser handshake (pys_cd)
+ * produces is the same for every visitor, but a cookie dies with its
+ * visitor and so every new visitor's first request found PHP not knowing
+ * it again. Filled in once from an administrator's browser (admin.js runs
+ * the public.js probe and posts the result), or by hand on the settings
+ * page; read by pys_cookie_domain_setting().
+ */
+const PYS_COOKIE_DOMAIN_OPTION = 'cookie_domain';
+
+/**
+ * Cookies only our front-end script writes (manageCookies() in public.js;
+ * no setcookie() in PHP names any of them). One of them in a request proves
+ * the script has run in that browser with cookies allowed, which turns "no
+ * pys_cd" from "not yet" into "never" — see pys_cookie_domain_front_end_seen().
+ */
+const PYS_COOKIE_DOMAIN_FRONT_END_COOKIES = array(
+    'pys_first_visit',
+    'pys_session_limit',
+    'pys_start_session',
+    'pysTrafficSource',
+    'pys_landing_page',
+    'last_pysTrafficSource',
+    'last_pys_landing_page',
+);
+
+/**
+ * True when the browser reported that host-only is the scope it uses.
+ *
+ * Pure — no WordPress, no superglobals.
+ *
+ * @param string $reported Value of the pys_cd cookie.
+ * @return bool
+ */
+function pys_cookie_domain_reported_host_only( $reported ) {
+    return is_string( $reported ) && PYS_REPORTED_DOMAIN_HOST_ONLY === trim( $reported );
+}
+
+/**
+ * True when the front-end script has evidently run in this browser.
+ *
+ * Pure — no WordPress, no superglobals.
+ *
+ * @param array $cookies The request's cookies, name => value.
+ * @return bool
+ */
+function pys_cookie_domain_front_end_seen( $cookies ) {
+    if ( ! is_array( $cookies ) ) {
+        return false;
+    }
+    foreach ( PYS_COOKIE_DOMAIN_FRONT_END_COOKIES as $name ) {
+        if ( isset( $cookies[ $name ] ) && '' !== $cookies[ $name ] ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Whether the cookies pys_cookie_domain_front_end_seen() looks for may be
+ * missing even though the script ran: each of them can be turned off by a
+ * filter, and on such a site their absence says nothing about the script.
+ *
+ * @return bool
+ */
+function pys_cookie_domain_front_end_cookies_optional() {
+    return (bool) apply_filters( 'pys_disable_first_visit_cookie', false )
+        || (bool) apply_filters( 'pys_disabled_start_session_cookie', false )
+        || (bool) apply_filters( 'pys_disable_landing_page_cookie', false )
+        || (bool) apply_filters( 'pys_disable_trafficsource_cookie', false );
+}
+
+/**
+ * Whether the site turned every PYS cookie off (`pys_disable_all_cookie`).
+ * The front end then writes nothing, `pys_cd` included, so no report will
+ * ever arrive — and PHP has nothing to write once it did. A `pys_cd` may
+ * still be present, kept from before the filter was switched on; it changes
+ * nothing about that.
+ *
+ * @return bool
+ */
+function pys_cookie_domain_cookies_disabled() {
+    return (bool) apply_filters( 'pys_disable_all_cookie', false );
+}
+
+/**
+ * The domain the browser reported through pys_cd, sanitised; '' when none.
+ *
+ * @return string
+ */
+function pys_cookie_domain_reported() {
+    return isset( $_COOKIE[ PYS_REPORTED_DOMAIN_COOKIE ] )
+        ? sanitize_text_field( wp_unslash( $_COOKIE[ PYS_REPORTED_DOMAIN_COOKIE ] ) )
+        : '';
+}
+
+/**
+ * Normalise a host or domain into a bare, comparable form.
+ *
+ * Strips a scheme, a leading dot, IPv6 brackets and a trailing port, then
+ * lowercases. Returns '' for anything unusable.
+ *
+ * Pure — no WordPress, no superglobals.
+ *
+ * @param string $value Host, domain or URL authority.
+ * @return string Bare lowercase host, or '' .
+ */
+function pys_cookie_domain_normalize_host( $value ) {
+    if ( ! is_string( $value ) ) {
+        return '';
+    }
+
+    $value = trim( $value );
+    if ( '' === $value ) {
+        return '';
+    }
+
+    // Drop a scheme if one was passed in.
+    $scheme_pos = strpos( $value, '://' );
+    if ( false !== $scheme_pos ) {
+        $value = substr( $value, $scheme_pos + 3 );
+    }
+
+    // Keep only the authority.
+    $value = strtok( $value, '/' );
+    if ( false === $value ) {
+        return '';
+    }
+
+    // A bracketed IPv6 literal, with or without a port: [::1] / [::1]:8080 .
+    if ( isset( $value[0] ) && '[' === $value[0] ) {
+        $close = strpos( $value, ']' );
+        if ( false === $close ) {
+            return '';
+        }
+        return strtolower( substr( $value, 1, $close - 1 ) );
+    }
+
+    // A trailing :port — but exactly one colon, otherwise this is a bare IPv6
+    // literal such as 2606:4700::1111 and the colons are part of the address.
+    if ( 1 === substr_count( $value, ':' ) ) {
+        $value = substr( $value, 0, strrpos( $value, ':' ) );
+    }
+
+    return strtolower( trim( $value, '.' ) );
+}
+
+/**
+ * True when $candidate is a domain that legitimately covers $host.
+ *
+ * "Covers" means the candidate is $host itself or one of its parent domains,
+ * and carries at least two labels so a bare TLD can never be returned.
+ *
+ * Pure — no WordPress, no superglobals.
+ *
+ * @param string $candidate Domain to test.
+ * @param string $host      Host the cookie will be set from.
+ * @return bool
+ */
+function pys_cookie_domain_covers_host( $candidate, $host ) {
+    $candidate = pys_cookie_domain_normalize_host( $candidate );
+    $host      = pys_cookie_domain_normalize_host( $host );
+
+    if ( '' === $candidate || '' === $host ) {
+        return false;
+    }
+
+    // An IP address is never a cookie domain.
+    if ( false !== filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
+        return false;
+    }
+
+    // At minimum "example.com" — refuse a single label such as "uk".
+    if ( substr_count( $candidate, '.' ) < 1 ) {
+        return false;
+    }
+
+    if ( $candidate === $host ) {
+        return true;
+    }
+
+    // Parent domain: host must end with ".candidate".
+    $suffix = '.' . $candidate;
+    return substr( $host, - strlen( $suffix ) ) === $suffix;
+}
+
+/**
+ * Decide the cookie domain from explicit inputs.
+ *
+ * The goal is parity with dist/scripts/public.js, not "compute the eTLD+1 in
+ * PHP": the front end resolves the registrable domain through a real Public
+ * Suffix List when track_cookie_for_subdomains is on, and writes host-only
+ * otherwise. A parent domain built from the last two labels yields a public
+ * suffix on hosts like shop.example.co.uk, which browsers reject.
+ *
+ * Deliberately not sources: the subdomain_index inside an existing _fbp (older
+ * versions hardcoded 1, so it would reintroduce that bug), and WordPress's
+ * COOKIE_DOMAIN (it scopes auth cookies, is non-empty on every multisite by
+ * default, and on a domain-mapped subsite names a domain that does not even
+ * cover the subsite host).
+ *
+ * The floor is '' (host-only): never rejected, so an unknown domain costs
+ * cross-subdomain sharing but never the cookie itself.
+ *
+ * Pure — no WordPress, no superglobals.
+ *
+ * @param string $host             Current host.
+ * @param bool   $track_subdomains Value of the track_cookie_for_subdomains option.
+ * @param string $reported         Registrable domain the browser verified, if any.
+ * @param string $configured       Domain from the pys_cookie_domain_override
+ *                                 filter; stands in until the browser answers.
+ * @return string Domain to pass to setcookie(), '' for host-only.
+ */
+function pys_cookie_domain_resolve( $host, $track_subdomains, $reported = '', $configured = '' ) {
+    $host = pys_cookie_domain_normalize_host( $host );
+    if ( '' === $host ) {
+        return '';
+    }
+
+    // Meaningless for an IP address or single-label host ("localhost");
+    // browsers drop both, and nothing below — filter included — can override it.
+    if ( false !== filter_var( $host, FILTER_VALIDATE_IP ) ) {
+        return '';
+    }
+    if ( false === strpos( $host, '.' ) ) {
+        return '';
+    }
+
+    // Parity with public.js: option off means the browser writes host-only
+    // cookies, so PHP does too — this also discards a stale pys_cd.
+    if ( ! $track_subdomains ) {
+        return '';
+    }
+
+    // The browser tried every Domain attribute this host allows and none was
+    // accepted, so it writes host-only and PHP must too. Ranked above the
+    // filter: a domain the browser refuses is not made acceptable by config.
+    if ( pys_cookie_domain_reported_host_only( $reported ) ) {
+        return '';
+    }
+
+    // The tldjs answer, reported via cookie and therefore visitor-supplied:
+    // validated (must cover this host) rather than trusted. Worst case a
+    // forged value scopes only that visitor's own cookie differently.
+    //
+    // Accepted gap: a forged public suffix of this host ("co.uk" on
+    // shop.example.co.uk) passes the structural check and the browser then
+    // rejects the write — closing it needs a PSL in PHP, the duplication this
+    // design avoids.
+    if ( pys_cookie_domain_covers_host( $reported, $host ) ) {
+        return '.' . pys_cookie_domain_normalize_host( $reported );
+    }
+
+    // No browser answer yet (first page load, or front end never runs). A
+    // filter may stand in, under the same coverage check.
+    //
+    // Ranked below both the browser's answer and the option on purpose: a
+    // scope the front end won't follow is worse than none, since a cookie
+    // written at one scope can't be refreshed or deleted at another.
+    if ( pys_cookie_domain_covers_host( $configured, $host ) ) {
+        return '.' . pys_cookie_domain_normalize_host( $configured );
+    }
+
+    return '';
+}
+
+/**
+ * The track_cookie_for_subdomains option, or null while it cannot be read.
+ *
+ * `null` matters: it is falsy, so a caller treating it as bool concludes
+ * "host-only" — a decision, not an absence of one. Options are readable only
+ * once locateOptions() has run (PYS::init(), 'init' priority 9);
+ * `did_action( 'init' )` is already 1 by priority 0-8 so it can't detect that
+ * window, Settings::optionsLocated() can.
+ *
+ * @return bool|null True/false once the option is readable, null before that.
+ */
+function pys_cookie_domain_track_subdomains() {
+    $pys = PYS();
+
+    // method_exists guards a version skew between the two plugins: this file
+    // ships identically in both, and whichever loads first defines it.
+    if ( ! $pys || ! method_exists( $pys, 'optionsLocated' ) || ! $pys->optionsLocated() ) {
+        return null;
+    }
+
+    return (bool) $pys->getOption( 'track_cookie_for_subdomains' );
+}
+
+/**
+ * The cookie_domain option, normalised; '' when unset or not readable yet.
+ *
+ * @return string
+ */
+function pys_cookie_domain_setting() {
+    $pys = PYS();
+
+    if ( ! $pys || ! method_exists( $pys, 'optionsLocated' ) || ! $pys->optionsLocated() ) {
+        return '';
+    }
+
+    $value = $pys->getOption( PYS_COOKIE_DOMAIN_OPTION, '' );
+
+    return is_string( $value ) ? pys_cookie_domain_normalize_host( $value ) : '';
+}
+
+/**
+ * The stand-in for the browser's answer: the filter when set, else the setting.
+ *
+ * The filter outranks the setting because it is code a developer placed on
+ * purpose, while the setting may have been filled in automatically. Neither
+ * is trusted as such: pys_cookie_domain_resolve() still requires the value to
+ * cover the request host, and the browser's own report still wins.
+ *
+ * Pure — no WordPress, no superglobals.
+ *
+ * @param string $host    Current host (unused for now; kept so a future
+ *                        per-host setting needs no signature change).
+ * @param string $filter  Value of the pys_cookie_domain_override filter.
+ * @param string $setting Value of the cookie_domain option.
+ * @return string Raw candidate, '' for none.
+ */
+function pys_cookie_domain_configured_with( $host, $filter, $setting ) {
+    if ( is_string( $filter ) && '' !== trim( $filter ) ) {
+        return $filter;
+    }
+
+    return is_string( $setting ) ? $setting : '';
+}
+
+/**
+ * pys_cookie_domain_configured_with() for this request.
+ *
+ * @param string $host Current host, handed to the filter.
+ * @return string
+ */
+function pys_cookie_domain_configured( $host ) {
+    /**
+     * Filters the cookie domain for sites where the browser cannot report it.
+     *
+     * Return a domain covering the current host to use while no verified
+     * answer exists yet. Once the browser reports its accepted domain, that
+     * answer wins; a value that doesn't cover the host is ignored. Outranks
+     * the cookie_domain setting.
+     *
+     * Does not switch subdomain tracking on — with the option off, the front
+     * end writes host-only cookies and PHP matches it regardless of this filter.
+     *
+     * Register no later than 'init' priority 20: the resolved value is
+     * memoised on first use. 'plugins_loaded' is the safe place.
+     *
+     * @param string $configured Domain to use, '' to let PYS decide.
+     * @param string $host       Current host.
+     */
+    $filter = (string) apply_filters( 'pys_cookie_domain_override', '', $host );
+
+    return pys_cookie_domain_configured_with( $host, $filter, pys_cookie_domain_setting() );
+}
+
+/**
+ * What an administrator's browser may store as the site's cookie domain.
+ *
+ * admin.js runs the same probe public.js does — writes a throwaway cookie at
+ * each candidate scope and keeps the broadest the browser accepted — so the
+ * value is browser-verified. It is still checked against the host it arrived
+ * on (a domain-mapped admin host must not configure the front end's), and an
+ * existing value is never overwritten: clearing the field is how the site
+ * owner asks for a fresh detection, overwriting is how one would lose a
+ * value they typed.
+ *
+ * Pure — no WordPress, no superglobals.
+ *
+ * @param string $detected Domain the admin's browser accepted, bare or dotted.
+ * @param string $host     Host the AJAX request arrived on.
+ * @param string $current  Value of the option right now.
+ * @return string Normalised domain to store, '' to store nothing.
+ */
+function pys_cookie_domain_accept_detected( $detected, $host, $current ) {
+    if ( is_string( $current ) && '' !== trim( $current ) ) {
+        return '';
+    }
+
+    $detected = pys_cookie_domain_normalize_host( $detected );
+
+    if ( '' === $detected || ! pys_cookie_domain_covers_host( $detected, $host ) ) {
+        return '';
+    }
+
+    return $detected;
+}
+
+/**
+ * The cookie domain for this request.
+ *
+ * Single source of truth: every setcookie() in the plugin must go through this,
+ * deletes included. A cookie written at one scope and expired at another cannot
+ * be removed — that is how PHP ended up unable to delete the pbid cookie the
+ * front end had written.
+ *
+ * @return string Domain to pass to setcookie(), '' for host-only.
+ */
+function pys_cookie_domain() {
+    static $cached = null;
+
+    if ( null !== $cached ) {
+        return $cached;
+    }
+
+    // Never memoise an answer derived from an unreadable option: the host-only
+    // fallback would then get cached even on sites where the option is on.
+    $track_subdomains = pys_cookie_domain_track_subdomains();
+    $may_cache        = null !== $track_subdomains;
+
+    $host = pys_cookie_domain_request_host();
+
+    // The filter, else the cookie_domain setting: both stand in for the
+    // browser's answer and are validated against the host below.
+    $configured = pys_cookie_domain_configured( $host );
+
+    $reported = pys_cookie_domain_reported();
+
+    // An unreadable option resolves to host-only, the floor that is never
+    // rejected. pys_cookie_domain_pending() reports the same state as "do not
+    // write yet", so the floor is used for reading and not acted on for writing.
+    $resolved = pys_cookie_domain_resolve(
+        $host,
+        (bool) $track_subdomains,
+        $reported,
+        $configured
+    );
+
+    if ( $may_cache ) {
+        $cached = $resolved;
+    }
+
+    return $resolved;
+}
+
+/**
+ * The `subdomain_index` Meta expects inside an `_fbp` / `_fbc` value.
+ *
+ * Meta defines it as the dot count of the scope the cookie lives on — `com` =
+ * 0, `example.com` = 1, `www.example.com` = 2 — which is the Domain attribute
+ * when we set one, else the host. Hardcoding `1` (as our old PHP and JS did)
+ * is right only on a two-label domain; `shop.example.co.uk` wants 2.
+ *
+ * Nothing parses the index back out on our side, and Meta's docs don't say
+ * whether their ingestion does — cheap correctness, not a measurable fix.
+ *
+ * Pure — no WordPress, no superglobals.
+ *
+ * @param string $domain Domain attribute we will set, '' for host-only.
+ * @param string $host   Current host, used when the cookie is host-only.
+ * @return int
+ */
+function pys_cookie_subdomain_index( $domain, $host ) {
+    $scope = is_string( $domain ) && '' !== trim( $domain ) ? $domain : $host;
+    $scope = pys_cookie_domain_normalize_host( $scope );
+
+    return '' === $scope ? 0 : substr_count( $scope, '.' );
+}
+
+/**
+ * The `subdomain_index` for a cookie set during this request.
+ *
+ * @return int
+ */
+function pys_cookie_subdomain_index_for_request() {
+    return pys_cookie_subdomain_index( pys_cookie_domain(), pys_cookie_domain_request_host() );
+}
+
+/**
+ * The host this request arrived on.
+ *
+ * Centralised because the resolver, the subdomain index and the diagnostics
+ * must all see the same host within one request, or they can disagree.
+ *
+ * @return string Raw host, unnormalised — callers normalise as they need.
+ */
+function pys_cookie_domain_request_host() {
+    return isset( $_SERVER['HTTP_HOST'] )
+        ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) )
+        : (string) wp_parse_url( get_site_url(), PHP_URL_HOST );
+}
+
+/**
+ * Whether an empty cookie domain means "host-only" or "we do not know yet".
+ *
+ * pys_cookie_domain() collapses both into '', which is fine for reading but
+ * not for writing — the two states need opposite actions. Host-only is correct
+ * when subdomain tracking is off or the host cannot carry a Domain attribute
+ * (IP literal, single-label host); it is wrong on the first consented page
+ * load of a site that wants subdomain tracking, where writing host-only stakes
+ * a claim the next request contradicts. A third state, the option unreadable
+ * (`null` before locateOptions()), must not be read as "off": the option
+ * defaults to on, so that guess is wrong on a default install.
+ *
+ * Pure — no WordPress, no superglobals.
+ *
+ * @param string    $host             Current host.
+ * @param bool|null $track_subdomains The track_cookie_for_subdomains option,
+ *                                    null while it cannot be read.
+ * @param string    $resolved         What pys_cookie_domain_resolve() returned.
+ * @param string    $reported         Value of the pys_cd cookie, if any.
+ * @return bool True when a write should be deferred to the front end.
+ */
+function pys_cookie_domain_is_pending( $host, $track_subdomains, $resolved, $reported = '' ) {
+    return '' !== pys_cookie_domain_pending_reason( $host, $track_subdomains, $resolved, $reported );
+}
+
+/**
+ * Why a write is being deferred, or '' when it is not.
+ *
+ * Same decision as pys_cookie_domain_is_pending() plus which state applies:
+ *
+ *   PYS_COOKIE_DOMAIN_PENDING_OPTIONS
+ *     Option not readable yet ('init' priorities 0-8). A diagnostic seeing
+ *     this ran too early; it lasts a few priorities of one request.
+ *
+ *   PYS_COOKIE_DOMAIN_PENDING_BROWSER
+ *     No browser has said which domain it accepts. Normally one request, but
+ *     permanent on a site whose front end never runs.
+ *
+ *   PYS_COOKIE_DOMAIN_PENDING_DISABLED
+ *     Every PYS cookie is off (`pys_disable_all_cookie`): the front end will
+ *     never report, and there is nothing to write once it did. Still
+ *     "pending" for the writers — nothing may be stored — but final for the
+ *     reader: a log line must not promise the next page load.
+ *     Asked first, because it holds whatever the domain question answers: a
+ *     known scope (option off, an IP host, a `pys_cd` kept from before the
+ *     filter was switched on) says where a cookie would go, not that one may.
+ *
+ * For reporting only, never for deciding: no server-side evidence separates
+ * "not answered yet" from "never will" — no `pys_cd` looks the same in both.
+ *
+ * Pure — no WordPress, no superglobals.
+ *
+ * @param string    $host             Current host.
+ * @param bool|null $track_subdomains The track_cookie_for_subdomains option,
+ *                                    null while it cannot be read.
+ * @param string    $resolved         What pys_cookie_domain_resolve() returned.
+ * @param string    $reported         Value of the pys_cd cookie, if any.
+ * @param bool      $cookies_disabled The pys_disable_all_cookie filter.
+ * @return string One of the PYS_COOKIE_DOMAIN_PENDING_* constants, or ''.
+ */
+function pys_cookie_domain_pending_reason( $host, $track_subdomains, $resolved, $reported = '', $cookies_disabled = false ) {
+    if ( $cookies_disabled ) {
+        return PYS_COOKIE_DOMAIN_PENDING_DISABLED;
+    }
+
+    // We have an answer.
+    if ( is_string( $resolved ) && '' !== trim( $resolved ) ) {
+        return '';
+    }
+
+    // Host-only is the browser's answer: it accepted no Domain attribute on
+    // this host. Right whatever the option says, so it needs no option to be
+    // readable — option off is host-only too.
+    if ( pys_cookie_domain_reported_host_only( $reported ) ) {
+        return '';
+    }
+
+    // Host-only is the answer, not the absence of one — but only once the site
+    // has actually said so. A null option has said nothing yet.
+    if ( null !== $track_subdomains && ! $track_subdomains ) {
+        return '';
+    }
+
+    $host = pys_cookie_domain_normalize_host( $host );
+
+    if ( '' === $host ) {
+        return '';
+    }
+    if ( false !== filter_var( $host, FILTER_VALIDATE_IP ) ) {
+        return '';
+    }
+    if ( false === strpos( $host, '.' ) ) {
+        return '';
+    }
+
+    return null === $track_subdomains
+        ? PYS_COOKIE_DOMAIN_PENDING_OPTIONS
+        : PYS_COOKIE_DOMAIN_PENDING_BROWSER;
+}
+
+/**
+ * Whether PHP should defer writing Meta's cookies to the front end this request.
+ *
+ * True on a site that wants subdomain tracking, on a host that can carry a
+ * Domain attribute, before the browser has reported which domain that is —
+ * normally one request, since our script writes `pys_cd` on the same page
+ * load. Also true before options are readable ('init' priorities 0-8).
+ *
+ * Deliberately not bounded when the front end never answers: falling back to
+ * host-only would mint an `_fbp` sent to Meta and stored nowhere, and no value
+ * beats an invented one. A front end that runs but finds no acceptable domain
+ * does answer — it reports PYS_REPORTED_DOMAIN_HOST_ONLY — so the wait ends on
+ * every host the script reaches. Escape hatches for the rest are the
+ * `pys_cookie_domain_override` filter and turning off
+ * `track_cookie_for_subdomains`. The silence is reported by
+ * pys_cookie_domain_diagnostics() and logged at the point of loss by
+ * pys_cookie_domain_log_deferral().
+ *
+ * @return bool
+ */
+function pys_cookie_domain_pending() {
+    return '' !== pys_cookie_domain_pending_reason_for_request();
+}
+
+/**
+ * Whether PHP may write a tracking cookie on this request.
+ *
+ * The one gate for every PHP writer that shares a name with the front end:
+ * headers still open, cookies not switched off by the site
+ * (`pys_disable_all_cookie`), and the scope settled. The filter is named on
+ * its own although pys_cookie_domain_pending() reports it too: a writer must
+ * not depend on how the pending states are ordered.
+ *
+ * Says nothing about consent, which is per platform and the caller's to ask.
+ *
+ * @return bool
+ */
+function pys_may_write_cookies() {
+    return ! headers_sent()
+        && ! pys_cookie_domain_cookies_disabled()
+        && ! pys_cookie_domain_pending();
+}
+
+/**
+ * pys_cookie_domain_pending(), but saying which pending state we are in.
+ *
+ * @return string One of the PYS_COOKIE_DOMAIN_PENDING_* constants, or ''.
+ */
+function pys_cookie_domain_pending_reason_for_request() {
+    return pys_cookie_domain_pending_reason(
+        pys_cookie_domain_request_host(),
+        pys_cookie_domain_track_subdomains(),
+        pys_cookie_domain(),
+        pys_cookie_domain_reported(),
+        pys_cookie_domain_cookies_disabled()
+    );
+}
+
+/**
+ * Note in the debug log that a value was withheld for want of a cookie domain.
+ *
+ * Written here because the visitor's own request is the only context with
+ * real evidence — an admin screen only sees the admin's own browser.
+ *
+ * Once per subject per request: `$subject` is what we did not produce
+ * (`_fbp`), so several callers deciding the same thing log one line, not
+ * several. Silent unless logging is switched on.
+ *
+ * @param string $subject Name of the value that was withheld.
+ * @param string $note    Optional extra cause, e.g. "headers already sent".
+ * @return void
+ */
+/**
+ * How a site owner ends a permanent deferral, in one sentence.
+ *
+ * Shared by the log line and the system report so the two cannot drift. The
+ * first remedy is the one that needs no code: opening the plugin settings
+ * fills the setting in from the administrator's own browser.
+ *
+ * @return string
+ */
+function pys_cookie_domain_remedy() {
+    return 'open the PixelYourSite settings page once in a browser on this'
+        . ' domain (the Cookie domain setting is detected and saved), or type it'
+        . ' into that setting, or set the pys_cookie_domain_override filter, or'
+        . ' turn off track_cookie_for_subdomains to make host-only cookies correct';
+}
+
+function pys_cookie_domain_log_deferral( $subject, $note = '' ) {
+    static $logged = array();
+
+    if ( isset( $logged[ $subject ] ) ) {
+        return;
+    }
+    $logged[ $subject ] = true;
+
+    $reason = pys_cookie_domain_pending_reason_for_request();
+
+    // Nothing was deferred on our account. A caller may still have had its own
+    // reason (headers_sent), and that is its message to write, not ours.
+    if ( '' === $reason && '' === $note ) {
+        return;
+    }
+
+    $pys = PYS();
+    if ( ! $pys || ! method_exists( $pys, 'getLog' ) || ! $pys->getLog() ) {
+        return;
+    }
+
+    $causes = array();
+    if ( '' !== $note ) {
+        $causes[] = $note;
+    }
+    if ( PYS_COOKIE_DOMAIN_PENDING_DISABLED === $reason ) {
+        $causes[] = 'every PYS cookie is turned off through the pys_disable_all_cookie'
+            . ' filter, so PHP stores no cookies and mints no _fbp. This is final,'
+            . ' not a wait: server events carry only the _fbp the browser'
+            . " sends (Meta's own script still writes one)";
+    } elseif ( PYS_COOKIE_DOMAIN_PENDING_BROWSER === $reason ) {
+        // Three readings of "no pys_cd", told apart by the script's other
+        // cookies: with them present the script has run here and still said
+        // nothing, which resolves only by hand; with none present this is a
+        // first request or a client without a browser, and resolves on the
+        // next page load — unless those cookies are optional on this site, in
+        // which case their absence says nothing either way. Every reading
+        // carries the remedy: the site owner has no other way to learn that
+        // the escape hatches exist.
+        $remedy = pys_cookie_domain_remedy();
+        if ( pys_cookie_domain_front_end_seen( is_array( $_COOKIE ) ? $_COOKIE : array() ) ) {
+            $causes[] = 'the cookie domain is unknown — our front-end script has'
+                . ' run in this browser (its other cookies are present) but has not'
+                . ' reported the domain (pys_cd). This will not resolve on its own,'
+                . ' the state is permanent: ' . $remedy;
+        } elseif ( pys_cookie_domain_front_end_cookies_optional() ) {
+            $causes[] = 'the cookie domain is unknown, and whether our front-end'
+                . ' script has run in this browser cannot be told: the cookies it'
+                . ' would leave are turned off by filter on this site. If pys_cd'
+                . ' never arrives for visitors the state is permanent: ' . $remedy;
+        } else {
+            $causes[] = 'the cookie domain is not known yet — our front-end script'
+                . ' reports it (pys_cd) once it runs in this browser. Expected on a'
+                . " visitor's first request and on requests without a browser (bots,"
+                . ' webhooks, cron); the browser writes its own _fbp meanwhile. If'
+                . ' it never arrives for visitors the state is permanent: ' . $remedy;
+        }
+    } elseif ( PYS_COOKIE_DOMAIN_PENDING_OPTIONS === $reason ) {
+        $causes[] = 'the options were not loaded yet (init priority < 9)';
+    }
+
+    $pys->getLog()->debug(
+        'Server-side ' . $subject . ' withheld: ' . implode( '; ', $causes )
+    );
+}
+
+/**
+ * What PYS will do with tracking cookies on this request, for the system report.
+ *
+ * Turns a silent permanent deferral ("server events have no _fbp and I
+ * cannot see why") into one findable row.
+ *
+ * Limitation: run from wp-admin, `pys_cd` here is the *admin's own*
+ * browser's cookie — present is strong evidence the handshake works for
+ * visitors, absent is ambiguous (this browser may simply never have loaded
+ * the front end).
+ *
+ * The caller supplies the warning glyph; `text` is escaped because
+ * html-report.php echoes values raw.
+ *
+ * @return array label => array( 'text' => string, 'warn' => bool )
+ */
+function pys_cookie_domain_diagnostics() {
+    $host     = pys_cookie_domain_request_host();
+    $track    = pys_cookie_domain_track_subdomains();
+    $resolved = pys_cookie_domain();
+    $reported = pys_cookie_domain_reported();
+    $disabled = pys_cookie_domain_cookies_disabled();
+    $reason   = pys_cookie_domain_pending_reason( $host, $track, $resolved, $reported, $disabled );
+
+    $rows = array();
+
+    $rows['Request host'] = array( 'text' => '' !== $host ? $host : 'unknown', 'warn' => false );
+
+    if ( null === $track ) {
+        $subdomains = 'Unknown — options not loaded yet, so this report ran too early';
+    } elseif ( $track ) {
+        $subdomains = 'On — cookies are scoped to the registrable domain';
+    } else {
+        $subdomains = 'Off — cookies are host-only, which needs no browser handshake';
+    }
+    $rows['Subdomain cookie tracking'] = array( 'text' => $subdomains, 'warn' => false );
+
+    // Deliberately reports presence and acceptance rather than echoing the
+    // cookie: the value is visitor-supplied, and what a diagnostic needs to know
+    // is whether it was *usable*, which is what the resolver already decided.
+    $covers  = pys_cookie_domain_covers_host( $reported, $host );
+    $settled = '' !== trim( (string) $resolved );
+
+    if ( '' === $reported && $disabled ) {
+        $handshake = 'No pys_cd from this browser, and none will come: the'
+            . ' pys_disable_all_cookie filter is on, so the front end writes no'
+            . ' cookies, pys_cd included.';
+    } elseif ( $disabled ) {
+        $handshake = 'pys_cd is present, kept from before the pys_disable_all_cookie'
+            . ' filter was switched on. It is not acted on: while the filter is on'
+            . ' PHP writes no cookies.';
+    } elseif ( '' === $reported ) {
+        $handshake = 'No pys_cd from this browser. That is normal in wp-admin if'
+            . ' you have not loaded the front end here; it is a problem if it also'
+            . " never arrives for visitors — see the last row of this section.";
+    } elseif ( pys_cookie_domain_reported_host_only( $reported ) ) {
+        $handshake = 'Reported: this browser accepts no Domain attribute on this'
+            . ' host (a public-suffix host, or every candidate write was refused),'
+            . ' so host-only is the scope in use on both sides';
+    } elseif ( $covers && $settled ) {
+        // A report is kept for a year and never re-tested. One narrower than
+        // the registrable domain (a false negative from a full cookie jar on
+        // the first probe) therefore stays; said here because nothing else
+        // would show it, and accepted because re-probing would put the
+        // throwaway write back on every page load.
+        $handshake = 'Reported and in use. Kept for a year; a report narrower'
+            . ' than the registrable domain stays until pys_cd is cleared';
+    } elseif ( $covers ) {
+        // Structurally fine, but not the scope in force. Said plainly rather
+        // than glossed as "accepted", because the row below reads host-only and
+        // a report whose rows contradict each other is worse than no report.
+        $handshake = false === $track
+            ? 'Reported, but not in use: subdomain cookie tracking is off, so'
+                . ' host-only is the correct scope and the value is ignored'
+            : 'Reported, but this request had already resolved to host-only. One'
+                . ' request keeps one scope; the next request will use it.';
+    } else {
+        $handshake = 'pys_cd present but rejected: it does not cover this host.'
+            . ' Usually a stale value from a previous domain — it is ignored, and'
+            . ' our script overwrites it on the next front-end page load.';
+    }
+    $rows['Browser handshake'] = array( 'text' => $handshake, 'warn' => false );
+
+    $override = (string) apply_filters( 'pys_cookie_domain_override', '', $host );
+    if ( '' === trim( $override ) ) {
+        $filter = 'Not set';
+    } elseif ( pys_cookie_domain_covers_host( $override, $host ) ) {
+        $filter = 'Set to ' . pys_cookie_domain_normalize_host( $override )
+            . ' — used while no browser has reported';
+    } else {
+        $filter = 'Set, but ignored: the value does not cover this host, so the'
+            . ' browser would reject a cookie written with it';
+    }
+    $rows['pys_cookie_domain_override filter'] = array( 'text' => $filter, 'warn' => false );
+
+    $setting = pys_cookie_domain_setting();
+    if ( '' === $setting ) {
+        $setting_text = 'Not set — filled in from your browser when you open the'
+            . ' PixelYourSite settings page on this domain, or type it there';
+    } elseif ( pys_cookie_domain_covers_host( $setting, $host ) ) {
+        $setting_text = 'Set to ' . $setting . ' — used while no browser has'
+            . ' reported' . ( '' !== trim( $override ) ? '; the filter above outranks it' : '' );
+    } else {
+        $setting_text = 'Set to ' . $setting . ', but ignored: the value does not'
+            . ' cover this host, so the browser would reject a cookie written with it';
+    }
+    $rows['Cookie domain setting'] = array( 'text' => $setting_text, 'warn' => false );
+
+    $rows['Cookie domain in use'] = array(
+        'text' => '' !== trim( (string) $resolved ) ? (string) $resolved : 'host-only',
+        'warn' => false,
+    );
+
+    if ( PYS_COOKIE_DOMAIN_PENDING_DISABLED === $reason ) {
+        // A setting, not a fault: no warning marker.
+        $fbp  = 'Disabled: every PYS cookie is turned off through the'
+            . ' pys_disable_all_cookie filter, so PHP cannot store an _fbp and'
+            . ' will not mint one. This is final while the filter is on; server'
+            . ' events carry only the _fbp the browser sends. Values the browser'
+            . ' sends us are unaffected. The _fbc value is still sent with server'
+            . ' events, but the _fbc cookie is withheld as well.';
+        $warn = false;
+    } elseif ( PYS_COOKIE_DOMAIN_PENDING_BROWSER === $reason ) {
+        $fbp  = 'Disabled. PHP will not mint an _fbp until it knows the cookie'
+            . ' domain, because a value it cannot store is a browser identity that'
+            . ' exists nowhere. If no browser ever reports pys_cd — a consent tool'
+            . ' blocking our script, or a JavaScript error before it runs — this'
+            . ' never resolves on its own. On a healthy site this is the state of'
+            . " every new visitor's first request until the cookie domain is"
+            . ' stored per site. Fix: ' . pys_cookie_domain_remedy() . '. Values the'
+            . ' browser sends us are unaffected. The _fbc value is still sent'
+            . ' with server events, but the _fbc cookie is withheld as well, so'
+            . ' a script that reads document.cookie when the page loads (a'
+            . " form's hidden field, for one) sees neither on that first visit."
+            . ' Our script writes both a moment later.';
+        $warn = true;
+    } elseif ( PYS_COOKIE_DOMAIN_PENDING_OPTIONS === $reason ) {
+        $fbp  = 'Unknown — options not loaded yet, so this report ran too early';
+        $warn = false;
+    } else {
+        $fbp  = 'Available';
+        $warn = false;
+    }
+    $rows['Server-side _fbp'] = array( 'text' => $fbp, 'warn' => $warn );
+
+    return $rows;
+}

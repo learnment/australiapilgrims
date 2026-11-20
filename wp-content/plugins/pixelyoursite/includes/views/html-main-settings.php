@@ -26,16 +26,7 @@ include "html-popovers.php";
                         <h4 class="switcher-label secondary_heading"><?php _e('Use external_id', 'pys');?></h4>
                     </div>
                     <p class="text-gray mt-4">
-                        <?php _e('We will store it in cookie called pbid', 'pys');?>
-                    </p>
-                </div>
-                <div>
-                    <div class="d-flex align-items-center">
-                        <?php PYS()->render_switcher_input( 'external_id_use_transient' ); ?>
-                        <h4 class="switcher-label secondary_heading"><?php _e('Use transient WP for storage external_id', 'pys');?></h4>
-                    </div>
-                    <p class="text-gray mt-4">
-                        <?php _e('With this storage method, the data is saved in the WordPress database, for 10 minutes. After the lifetime expires, the data will be deleted or overwritten (the row in the database will be removed).', 'pys');?>
+                        <?php _e('A stable per-browser id sent as external_id. It is derived from the request on the first page view and then kept in a cookie called pbid.', 'pys');?>
                     </p>
                 </div>
                 <div class="d-flex align-items-center number-option-block">
@@ -82,6 +73,95 @@ include "html-popovers.php";
             </div>
         </div>
     </div>
+    <!-- REST API -->
+    <div class="card card-style6 card-static">
+        <div class="card-header card-header-style2 d-flex justify-content-between align-items-center">
+            <h4 class="secondary_heading_type2"><?php _e('REST API', 'pys');?></h4>
+        </div>
+        <div class="card-body">
+            <div class="gap-24">
+                <div>
+                    <div class="d-flex align-items-center">
+                        <?php PYS()->render_switcher_input( 'fetch_user_data_via_rest' ); ?>
+                        <h4 class="switcher-label secondary_heading">
+                            <?php _e( 'Fetch visitor data via REST API <strong>(for full-page caching)</strong>', 'pys' ); ?>
+                        </h4>
+                    </div>
+                    <div class="pys-notice pys-notice-warning mt-4" style="background:#fff8e1;border-left:4px solid #f0ad4e;padding:12px 16px;border-radius:4px;">
+                        <strong><?php _e( '&#9888; Two situations need this &mdash; otherwise leave it off', 'pys' ); ?></strong>
+                        <p class="mt-2 mb-0">
+                            <?php _e(
+                                'When active, everything that belongs to one particular visitor is taken out of the '
+                                . 'cached HTML and loaded per page view through a separate REST API call: nonces, the '
+                                . 'Advanced Matching parameters of logged-in visitors for the Meta pixel (and the '
+                                . 'Pinterest and Reddit add-ons when active), and the visit data recorded in the PHP '
+                                . 'session (landing page, traffic source, UTM parameters).<br><br>'
+                                . '<strong>Turn it on if your cache serves logged-in visitors a shared copy of the '
+                                . 'page.</strong> Advanced Matching for visitors who are not logged in is already '
+                                . 'cache-safe: the plugin never writes their email, phone or name into the page &mdash; '
+                                . 'the browser supplies them from the visitor\'s own cookie. Logged-in visitors are '
+                                . 'different: their profile and billing data exist only on the server, and this option '
+                                . 'fetches them per visitor instead of rendering them into a page a cache could hand to '
+                                . 'somebody else.<br><br>'
+                                . '<strong>Turn it on also if</strong> you need the visit data of visitors who have '
+                                . 'not accepted cookies yet, because without this call the landing page, the traffic '
+                                . 'source and the UTM parameters come only from the cookies of that visitor and from '
+                                . 'the current URL, and a consent manager that blocks those cookies leaves nothing '
+                                . 'to read.<br><br>'
+                                . 'The landing page, the traffic source and the UTM parameters are kept out of the '
+                                . 'cached HTML at all times, with or without this option, and so is the Advanced '
+                                . 'Matching of visitors who are not logged in, so those never travel from one visitor '
+                                . 'to another.<br><br>'
+                                . '<strong>The cost:</strong> one extra REST request, with a full WordPress boot, on '
+                                . 'every page view, and the pixel events wait for its answer before they fire. On '
+                                . 'shared hosting that is noticeable.',
+                                'pys'
+                            ); ?>
+                        </p>
+                    </div>
+                    <p class="text-gray mt-4">
+                        <?php _e(
+                            'After enabling, also exclude <code>/wp-json/pys/v1/dynamic-options</code> from all '
+                            . 'caching rules in your caching plugin.',
+                            'pys'
+                        ); ?>
+                    </p>
+                    <p class="text-gray mt-4">
+                        <?php _e(
+                            'Order confirmation pages are an exception: their Advanced Matching comes from the order '
+                            . 'itself and stays in the page, because those pages are never HTML-cached and the data '
+                            . 'can only be read from the order URL.<br><br>'
+                            . 'Note that this option covers PixelYourSite only. Other plugins may also print personal '
+                            . 'data into the page (WooCommerce blocks, email marketing scripts), so if you cache pages '
+                            . 'for logged-in users, excluding them from the cache remains the safest setup.',
+                            'pys'
+                        ); ?>
+                    </p>
+                </div>
+                <div>
+                    <div class="d-flex align-items-center number-option-block">
+                        <label class="primary_heading"><?php _e('REST API rate limit (requests per minute per IP):', 'pys');?></label>
+                        <?php PYS()->render_number_input( 'pys_check_permission_rate_limit', '', false, null, 1, 1 ); ?>
+                    </div>
+                    <p class="text-gray mt-4">
+                        <?php _e('Maximum number of server-side tracking requests allowed per minute, per IP address, for each pixel endpoint. Requests over this limit receive an HTTP 429 response. Default is 60 (1 request per second). Increase this value if legitimate fast-browsing customers are being blocked, especially on stores with multiple active pixels firing on every page.', 'pys');?>
+                    </p>
+                </div>
+                <div>
+                    <div class="d-flex align-items-center">
+                        <?php PYS()->render_switcher_input( 'rest_order_validation_enabled' ); ?>
+                        <h4 class="switcher-label secondary_heading"><?php _e( 'Validate orders for server-side purchase events', 'pys' );?></h4>
+                    </div>
+                    <p class="text-gray mt-4">
+                        <?php _e( 'The server-side tracking endpoint is open to anonymous visitors, so anyone can post a purchase event to it. With this on, a purchase event that names an order is accepted only when that order really exists, is not in a status you excluded, and matches the order key when the browser sent one — which stops fabricated purchases from reaching your ad platforms.', 'pys' );?>
+                    </p>
+                    <p class="text-gray mt-4">
+                        <?php _e( 'Turn it off only if your orders are created outside WooCommerce or Easy Digital Downloads — for example a headless checkout or a custom payment flow — and legitimate purchases are being dropped. Turning it off does not affect custom events, and it changes nothing on sites without WooCommerce or EDD: there the order check is skipped in either case.', 'pys' );?>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
     <!-- Disable PHP session -->
     <div class="card card-style6 card-static">
         <div class="card-header card-header-style2 d-flex justify-content-between align-items-center">
@@ -95,7 +175,10 @@ include "html-popovers.php";
                         <h4 class="switcher-label secondary_heading"><?php _e('Disable PHP sessions', 'pys');?></h4>
                     </div>
                     <p class="text-gray mt-4">
-                        <?php _e('If you are having problems with sessions or cache when the plugin is enabled due to the creation of the PHPSESSID cookie, disable this option. This may reduce the effectiveness of some of our session-based parameters, such as landing page, traffic source, or UTM.', 'pys');?>
+                        <?php _e('Turn this on if the PHPSESSID cookie itself causes trouble — for example a page cache that refuses to serve cached pages once the cookie is set. Note that other plugins can open a PHP session of their own, so this option cannot guarantee that the PHPSESSID cookie disappears from your site altogether.', 'pys');?>
+                    </p>
+                    <p class="text-gray mt-4">
+                        <?php _e('Cost of turning it on: the landing page, the traffic source and the UTM parameters then come only from the cookies of that visitor and from the current URL, and the REST API option above has nothing left to read. With full-page caching the cookies are usually the better source anyway — on a cache hit PHP does not run, so the session records nothing — but if a consent manager blocks the cookies of the plugin, the visit stays unrecorded until the visitor accepts them.', 'pys');?>
                     </p>
                 </div>
             </div>
@@ -154,6 +237,15 @@ include "html-popovers.php";
                         <?php PYS()->render_radio_input( 'data_persistency', 'keep_data', __('Keep the data in the browser for as long as possible', 'pys') ); ?>
                         <?php PYS()->render_radio_input( 'data_persistency', 'recent_data', __('Use the most recent data', 'pys') ); ?>
                     </div>
+                </div>
+                <div>
+                    <div class="d-flex align-items-center">
+                        <?php PYS()->render_switcher_input( 'enable_advanced_form_data_cookie' ); ?>
+                        <h4 class="switcher-label secondary_heading"><?php _e( 'Store detected user data in a cookie', 'pys' ); ?></h4>
+                    </div>
+                    <p class="text-gray mt-4">
+                        <?php _e( 'Email, phone and name detected at login or checkout are kept in the <code>pys_advanced_form_data</code> cookie on your own domain, so later events can still be matched to the same visitor. Turn this off to stop storing them. Declare this cookie in your privacy policy if you keep it enabled.', 'pys' ); ?>
+                    </p>
                 </div>
             </div>
         </div>
@@ -252,9 +344,29 @@ include "html-popovers.php";
         </div>
         <div class="card-body">
             <div class="gap-24">
+                <?php
+                $user_roles = getAvailableUserRoles();
+                $roles_without_access = array_values( array_diff( array_keys( $user_roles ), (array) PYS()->getOption( 'admin_permissions', array( 'administrator' ) ) ) );
+                $permissions_locked = ! PYS()->canEditPermissions();
+                ?>
+                <?php if ( $permissions_locked ) : ?>
+                    <p class="text-gray"><?php esc_html_e('These lists are managed by site administrators only.', 'pys');?></p>
+                <?php endif; ?>
                 <div>
                     <h4 class="primary_heading mb-4"><?php _e('Permissions:', 'pys');?></h4>
-                    <?php PYS()->render_multi_select_input('admin_permissions', getAvailableUserRoles()); ?>
+                    <?php PYS()->render_multi_select_input('admin_permissions', $user_roles, $permissions_locked); ?>
+                    <p class="text-gray mt-4"><?php esc_html_e('Full PixelYourSite access — opens the plugin menu and all of its settings.', 'pys');?></p>
+                </div>
+                <div class="permissions-scoped">
+                    <h4 class="primary_heading mb-4"><?php esc_html_e('WooCommerce/EDD Reports:', 'pys');?></h4>
+                    <?php PYS()->render_multi_select_input('woo_edd_reports_permissions', $user_roles, $permissions_locked, '', $roles_without_access); ?>
+                    <p class="text-gray mt-4"><?php esc_html_e('Order attribution on WooCommerce orders and EDD payments. In Pro, also the WooCommerce/EDD Reports pages.', 'pys');?></p>
+                </div>
+                <div class="permissions-scoped">
+                    <h4 class="primary_heading mb-4"><?php esc_html_e('Customer Data Export:', 'pys');?></h4>
+                    <?php PYS()->render_multi_select_input('woo_edd_export_permissions', $user_roles, $permissions_locked, '', $roles_without_access); ?>
+                    <p class="text-gray mt-4"><?php esc_html_e('Logs, which can contain customer data. In Pro, also the customer data exports.', 'pys');?></p>
+                    <p class="text-gray mt-4"><?php esc_html_e('Only roles already checked under "Permissions" above are selectable here — a role that can\'t open the plugin can\'t be granted report or export access either.', 'pys');?></p>
                 </div>
             </div>
         </div>
@@ -313,7 +425,7 @@ pysOptions
 wp-content/plugins/pixelyoursite/dist/scripts/public.js
 wp-content/plugins/pixelyoursite/dist/scripts/js.cookie-2.1.3.min.js
 wp-content/plugins/pixelyoursite/dist/scripts/sha256.js
-wp-content/plugins/pixelyoursite/dist/scripts/tld.min.js
+wp-content/plugins/pixelyoursite/dist/jquery.bind-first-0.2.3.min.js
                             <div class="copy-icon" data-toggle="pys-popover"
                                  data-tippy-trigger="click" data-tippy-placement="bottom"
                                  data-popover_id="copied-popover"></div></pre>
@@ -363,13 +475,22 @@ wp-content/plugins/pixelyoursite/dist/scripts/tld.min.js
                         <?php _e('Enable this option if you want unified tracking for our native landing pages, traffic sources, and UTMs data. When there are different installations, this option must be enabled on both the domain and the subdomain.', 'pys');?>
                     </p>
                 </div>
+                <div>
+                    <h4 class="secondary_heading"><?php _e('Cookie domain', 'pys');?></h4>
+                    <div class="mt-2">
+                        <?php PYS()->render_text_input( 'cookie_domain', 'example.com' ); ?>
+                    </div>
+                    <p class="text-gray mt-4">
+                        <?php _e('The domain our server-side cookies (_fbp, _fbc and others) are written for while the option above is ON. It is detected from your browser and saved automatically when you open this page; clear the field to detect it again. Set it by hand only if your site answers on a different domain than this admin area. Values from the visitor\'s browser always take precedence.', 'pys');?>
+                    </p>
+                </div>
             </div>
         </div>
     </div>
     <div class="panel card card-style6 card-static">
         <div class="card-body text-center gap-24">
             <p class="mb-0">Track more key actions with the PRO version:</p>
-            <p><a class="btn btn-sm btn-primary" href="https://www.pixelyoursite.com/facebook-pixel-plugin/buy-pixelyoursite-pro?utm_source=pixelyoursite-free-plugin&utm_medium=plugin&utm_campaign=free-plugin-upgrade-blue"
+            <p><a class="btn btn-sm btn-primary" href="https://www.pixelyoursite.com/plugins/pixelyoursite-professional"
                   target="_blank">UPGRADE</a></p></p>
         </div>
     </div>

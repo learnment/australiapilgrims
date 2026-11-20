@@ -46,6 +46,22 @@ abstract class Settings {
     private $defaults_json_path;
     private static ?bool $table_exists = null;
 
+    /**
+     * True once locateOptions() has loaded the defaults for this options group.
+     *
+     * @var bool
+     */
+    private $defaults_located = false;
+
+    /**
+     * True when values were loaded from the database before the defaults were
+     * known. Such a load is incomplete: options missing from the stored row are
+     * not backfilled from the defaults, so it must not be treated as final.
+     *
+     * @var bool
+     */
+    private $loaded_without_defaults = false;
+
     public static function storage_table(): string {
         global $wpdb;
         return $wpdb->prefix . 'pys_options';
@@ -110,12 +126,37 @@ abstract class Settings {
 	 * @param string $defaults Path to options defaults file
 	 */
     public function locateOptions( $fields, $defaults ) {
-        
+
         $this->loadJSON( $fields, false );
         $this->loadJSON( $defaults, true );
-        
+
         $this->defaults_json_path = $defaults;
+        $this->defaults_located = true;
         self::table_exists();
+
+        // Values read before this point were merged with an empty defaults set,
+        // so any option missing from the stored row resolved to null instead of
+        // its default. Now that the defaults are known, load them again.
+        if ( $this->loaded_without_defaults ) {
+            $this->loaded_without_defaults = false;
+            $this->maybeLoad( true );
+        }
+    }
+
+    /**
+     * Whether locateOptions() has run, so getOption() can return a real value.
+     *
+     * Before it has, a missing option reads as null — indistinguishable from one
+     * deliberately unset, or from a boolean that is off. pys_cookie_domain()
+     * needs that difference, or it memoises a cookie scope guessed from an
+     * option it could not read. `did_action( 'init' )` is no substitute: it is
+     * already 1 through 'init' priorities 0-8, while locateOptions() runs inside
+     * PYS::init() at priority 9.
+     *
+     * @return bool
+     */
+    public function optionsLocated() {
+        return (bool) $this->defaults_located;
     }
 
     public function resetToDefaults() {
@@ -128,6 +169,11 @@ abstract class Settings {
         $preserve_fields = [
             'enabled',
 
+            // access control is not a tracking setting and must survive a reset
+            'admin_permissions',
+            'woo_edd_reports_permissions',
+            'woo_edd_export_permissions',
+
             'tracking_id',
             'enable_server_container',
             'server_container_url',
@@ -139,7 +185,7 @@ abstract class Settings {
             'server_access_api_token',
             'use_server_api',
             'verify_meta_tag',
-            
+
             'gtm_id',
             'gtm_just_data_layer',
         ];
@@ -201,7 +247,9 @@ abstract class Settings {
      */
     private function pys_get_from_storage( $option_key ) {
         global $wpdb;
-        if (!self::$table_exists) {
+        // Resolve the flag on demand: it must not depend on locateOptions()
+        // having already run for some options group in this request.
+        if (!self::table_exists()) {
             return null;
         }
 
@@ -230,7 +278,7 @@ abstract class Settings {
      */
     private function pys_set_in_storage( $option_key, $value, $migrated = 1 ) {
         global $wpdb;
-        if (!self::$table_exists) {
+        if (!self::table_exists()) {
             return null;
         }
         $table = self::storage_table();
@@ -305,6 +353,31 @@ abstract class Settings {
         return $this->values[ $key ];
 
     }
+
+    /**
+     * List the registered option keys for this module (from options_fields.json).
+     *
+     * @return array
+     */
+    public function getOptionKeys(): array {
+        return array_keys( (array) $this->options );
+    }
+
+    /**
+     * Whether this module defines an option key (in its options_defaults.json).
+     * Lets the core render or write a setting only for modules/add-ons that know it.
+     *
+     * @param string $key
+     *
+     * @return bool
+     */
+    public function issetOption( $key ) {
+
+        $this->maybeLoad();
+
+        return isset( $this->defaults[ $key ] );
+    }
+
     public function setOption($key, $value){
         $this->maybeLoad();
         if (isset($value) ) {
@@ -321,6 +394,10 @@ abstract class Settings {
         if ( ! $force && ! empty( $this->values ) ) {
             return; // already loaded
         }
+
+        // Remember whether this load happens before the defaults are known, so
+        // locateOptions() can redo it (see locateOptions()).
+        $this->loaded_without_defaults = ! $this->defaults_located;
 
         // 1) Let's try a new table
         $stored = $this->pys_get_from_storage( $this->option_key );
@@ -382,7 +459,7 @@ abstract class Settings {
         }
 
     }
-	
+
 	/**
 	 * Sanitize form field
 	 *
@@ -496,23 +573,23 @@ abstract class Settings {
 	 * @param int    $index
 	 */
 	public function render_pixel_id( $key, $placeholder = '', $index = 0 ) {
-        
+
         $attr_name = "pys[$this->slug][$key][]";
         $attr_id = 'pys_' . $this->slug . '_' . $key . '_' . $index;
-		
+
 		$values = (array) $this->getOption( $key );
 		$attr_value = isset( $values[ $index ] ) ? $values[ $index ] : null;
-  
+
 		?>
-        
+
         <input type="text" name="<?php echo esc_attr( $attr_name ); ?>"
                id="<?php echo esc_attr( $attr_id ); ?>"
                value="<?php echo esc_attr( $attr_value ); ?>"
                placeholder="<?php echo esc_attr( $placeholder ); ?>"
                class="input-standard">
-		
+
 		<?php
-		
+
 	}
 
     /**
@@ -564,7 +641,7 @@ abstract class Settings {
                class="input-standard">
         <?php
     }
-	
+
 	/**
 	 * Output text area input
 	 *
@@ -597,7 +674,7 @@ abstract class Settings {
 		<?php
 
 	}
-	
+
 	/**
 	 * Output checkbox input stylized as switcher
 	 *
@@ -691,7 +768,7 @@ abstract class Settings {
 		<?php
 
 	}
-	
+
 	/**
 	 * Output checkbox input
 	 *
@@ -773,9 +850,9 @@ abstract class Settings {
         </div>
 
 		<?php
-		
+
 	}
-	
+
 	/**
 	 * Output radio input
 	 *
@@ -809,9 +886,9 @@ abstract class Settings {
         </div>
 
 		<?php
-		
+
 	}
-	
+
 	/**
 	 * Output number input
 	 *
@@ -840,7 +917,7 @@ abstract class Settings {
         </div>
 
 		<?php
-		
+
 	}
 
 
@@ -919,11 +996,13 @@ abstract class Settings {
 	/**
 	 * Output multi select input
 	 *
-	 * @param      $key
-	 * @param      $values
-	 * @param bool $disabled
+	 * @param        $key
+	 * @param        $values
+	 * @param bool   $disabled
+	 * @param string $placeholder
+	 * @param array  $disabled_keys Options that cannot be selected.
 	 */
-    public function render_multi_select_input( $key, $values, $disabled = false, $placeholder = "" ) {
+    public function render_multi_select_input( $key, $values, $disabled = false, $placeholder = "", $disabled_keys = array() ) {
 
         $attr_name = "pys[$this->slug][$key][]";
         $attr_id = 'pys_' . $this->slug . '_' . $key;
@@ -940,7 +1019,7 @@ abstract class Settings {
             <?php foreach ( $values as $option_key => $option_value ) : ?>
                 <option value="<?php echo esc_attr( $option_key ); ?>"
                     <?php selected( in_array( $option_key, $selected ) ); ?>
-                    <?php disabled( $option_key, 'disabled' ); ?>
+                    <?php disabled( 'disabled' === $option_key || in_array( $option_key, $disabled_keys ), true ); ?>
                 >
                     <?php echo esc_attr( $option_value ); ?>
                 </option>
@@ -950,7 +1029,7 @@ abstract class Settings {
 
         <?php
     }
-	
+
 	/**
 	 * Output tags select input
 	 *
@@ -1004,7 +1083,7 @@ abstract class Settings {
 		return wp_kses_post( trim( stripslashes( $value ) ) );
 
 	}
-	
+
 	/**
 	 * Sanitize textarea field value
 	 *
@@ -1019,7 +1098,7 @@ abstract class Settings {
 		return trim( stripslashes( $value ) );
 
 	}
-	
+
 	/**
 	 * Sanitize number field value
 	 *
@@ -1030,7 +1109,7 @@ abstract class Settings {
 	public function sanitize_number_field( $value ) {
 		return (int) $value;
 	}
-	
+
 	/**
 	 * Sanitize checkbox field value
 	 *
@@ -1047,7 +1126,7 @@ abstract class Settings {
 		}
 
 	}
-	
+
 	/**
 	 * Sanitize radio field value
 	 *
@@ -1058,7 +1137,7 @@ abstract class Settings {
 	public function sanitize_radio_field( $value ) {
 		return ! is_null( $value ) ? trim( stripslashes( $value ) ) : null;
 	}
-	
+
 	/**
 	 * Sanitize select field value
 	 *
@@ -1069,13 +1148,13 @@ abstract class Settings {
 	 * @return array|string
 	 */
 	public function sanitize_select_field( $value ) {
-		
+
 		$value = is_null( $value ) ? '' : $value;
-		
+
 		return deepSanitizeTextField( stripslashes( $value ) );
-		
+
 	}
-	
+
 	/**
 	 * Sanitize tags select value
 	 *
@@ -1088,7 +1167,7 @@ abstract class Settings {
 	public function sanitize_multi_select_field( $value ) {
 		return is_array( $value ) ? array_map( 'PixelYourSite\deepSanitizeTextField', $value ) : array();
 	}
-	
+
 	/**
 	 * @param $value
 	 *
@@ -1097,7 +1176,7 @@ abstract class Settings {
 	public function sanitize_tag_select_field( $value ) {
 		return is_array( $value ) ? array_map( 'PixelYourSite\deepSanitizeTextField', $value ) : array();
     }
-	
+
 	/**
 	 * Sanitize array field value
 	 *
@@ -1106,22 +1185,22 @@ abstract class Settings {
 	 * @return array
 	 */
 	public function sanitize_array_field( $values ) {
-		
+
 		$values = is_array( $values ) ? $values : array();
 		$sanitized = array();
-		
+
 		foreach ( $values as $key => $value ) {
-			
+
 			$new_value = $this->sanitize_text_field( $value );
-			
+
 			if ( ! empty( $new_value ) && ! in_array( $new_value, $sanitized ) ) {
 				$sanitized[ $key ] = $new_value;
 			}
-			
+
 		}
-		
+
 		return $sanitized;
-		
+
 	}
 
 /**
@@ -1175,20 +1254,23 @@ abstract class Settings {
 	}
     public function render_checkbox_input_array( $key, $label, $index = 0, $disabled = false ) {
 
-        $attr_name  = "pys[$this->slug][$key][]";
-        $attr_values = (array)$this->getOption( $key );
-        $value = "index_".$index;
-        $valueIndex = array_search($value,$attr_values);
-
+        $attr_name = "pys[$this->slug][$key][]";
+        $attr_values = (array) $this->getOption( $key );
+        $value = "index_" . $index;
+        $valueIndex = array_search( $value, $attr_values );
+        $id = $key . "_" . rand( 1, 1000000 );
         ?>
-
-        <label class="custom-control custom-checkbox">
-            <input type="checkbox" name="<?php echo esc_attr( $attr_name ); ?>" value="<?=$value?>"
-                   class="custom-control-input" <?php disabled( $disabled, true ); ?>
-                <?=$valueIndex !== false ? "checked" : "" ?>>
-            <span class="custom-control-indicator"></span>
-            <span class="custom-control-description"><?php echo wp_kses_post( $label ); ?></span>
-        </label>
+        <div class="small-checkbox">
+            <input type="hidden" name="<?php echo esc_attr( $attr_name ); ?>" value="0">
+            <input type="checkbox" id="<?php echo esc_attr( $id ); ?>" name="<?php echo esc_attr( $attr_name ); ?>"
+                   value="<?= $value ?>"
+                   class="small-control-input" <?php disabled( $disabled, true ); ?>
+                    <?php echo $valueIndex !== false ? "checked" : "" ?>>
+            <label class="small-control small-checkbox-label" for="<?php echo esc_attr( $id ); ?>">
+                <span class="small-control-indicator"><i class="icon-check"></i></span>
+                <span class="small-control-description"><?php echo wp_kses_post( $label ); ?></span>
+            </label>
+        </div>
 
         <?php
 
@@ -1293,6 +1375,10 @@ abstract class Settings {
 
         echo '&nbsp;<a href="' . esc_url( $url ) . '" target="_blank" class="badge badge-pill badge-pro">'.$label.'</a>';
     }
+
+
+
+
     public function convertTimeToSeconds($timeValue = 24, $type = 'hours')
     {
         switch ($type){

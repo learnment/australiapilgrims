@@ -5,7 +5,7 @@
                 <span class="dashicons dashicons-no-alt ps-pro-close-popup"></span>
                 <div class="ps-pro-popup-content">
                     <img src="<?php echo  POST_SMTP_URL . '/Postman/Wizard/assets/images/wizard-google.png' ?>" class="ps-pro-for-img" />
-                    <h1>Ready to Supercharge Your Emails via <span class="ps-pro-for">Google Mailer Setup?</span></h1>
+                    <h1>Ready to Supercharge Your Emails with <span class="ps-pro-for">Google Mailer Setup?</span></h1>
                     <h4>Unlock this <strong>Pro Feature NOW</strong> and get a </h4> 
                     <span class="smily">🤩 <strong>HUGE 25% discount! </strong>🤩</span>
                     <div <?php echo postman_is_bfcm() ? 'style="background: url( '.esc_url( POST_SMTP_ASSETS . 'images/bfcm-2024/popup.png' ).' ); background-size: cover; margin: 20px 0 5px 0; padding: 16px 0px; position: relative;"' : 'class="ps-pro-promo-area"'; ?>>   
@@ -40,7 +40,7 @@
                         </div>
                     </div>
                     <div>
-                        <a href="<?php echo postman_is_bfcm() ? 'https://postmansmtp.com/cyber-monday-sale?utm_source=plugin&utm_medium=section_name&utm_campaign=BFCM&utm_id=BFCM_2024' : 'https://postmansmtp.com/pricing/?utm_source=plugin&utm_medium=wizard&utm_campaign=plugin'; ?>" target="_blank" class="button button-primary ps-yellow-btn ps-pro-product-url">CLAIM 25% OFF NOW <span class="dashicons dashicons-arrow-right-alt2"></span></a>
+                        <a href="<?php echo esc_url( post_smtp_utm_pricing_url( 'popup_claim-offer', 'upgrade' ) ); ?>" target="_blank" class="button button-primary ps-yellow-btn ps-pro-product-url">CLAIM 25% OFF NOW <span class="dashicons dashicons-arrow-right-alt2"></span></a>
                     </div>
                     
                     <div>

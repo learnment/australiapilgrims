@@ -40,6 +40,7 @@ if ( ! class_exists( 'Post_SMTP_New_Dashboard' ) ) {
 						'admin_url'      => admin_url( 'admin.php' ),
 						'page_hook'      => $hook,
 						'is_bfcm'        => postman_is_bfcm(),
+						'marketingUrls'  => post_smtp_dashboard_marketing_urls(),
 						'i18n'           => $i18n,
 					)
 				);
@@ -51,14 +52,29 @@ if ( ! class_exists( 'Post_SMTP_New_Dashboard' ) ) {
         
         public function dashboard_content() {
             $transport          = PostmanTransportRegistry::getInstance()->getActiveTransport();
+			$postman_options    = get_option( 'postman_options', array() );
             $app_connected      = get_option( 'post_smtp_mobile_app_connection' );
 	        $main_wp_configured = get_option( 'post_smtp_use_from_main_site' );
+            $post_smtp_parent_configured = get_option( 'post_smtp_parent_configured' );
             $configured         = $transport->isConfiguredAndReady() ? 'true' : 'false';
             $app_connected      = empty( $app_connected ) ? 'false' : 'true';
 	        $main_wp_configured = empty( $main_wp_configured ) ? 'false' : 'true';
-			$has_post_smtp_pro  = apply_filters( 'active_plugins', get_option( 'active_plugins' ) );
+			if ( $main_wp_configured == 'true' ) {
+                $configured = $post_smtp_parent_configured ? 'true' : 'false';
+            }
+            $has_post_smtp_pro  = apply_filters( 'active_plugins', get_option( 'active_plugins' ) );
 			$has_post_smtp_pro  = in_array( 'post-smtp-pro/post-smtp-pro.php', $has_post_smtp_pro, true )
 				? 'true' : 'false';
+			$log_only_mode = is_array( $postman_options ) && isset( $postman_options['run_mode'] ) && 'log_only' === $postman_options['run_mode']
+				? 'true' : 'false' ;
+
+            // Check if user has Professional or Basic plan
+            $is_professional_or_basic = 'false';
+            if ( function_exists( 'pspro_fs' ) ) {
+                if ( pspro_fs()->is_plan( 'professional', true ) || pspro_fs()->is_plan( 'basic', true ) ) {
+                    $is_professional_or_basic = 'true';
+                }
+            }
 
 	        $ad_position = get_option('postman_dashboard_ad', 'maximize' );
             echo '<div id="post-smtp-app">
@@ -68,6 +84,8 @@ if ( ! class_exists( 'Post_SMTP_New_Dashboard' ) ) {
                     :is-mobile-app-configured="' . esc_attr( $app_connected ) . '"
                     :is-main-wp-configured="' . esc_attr( $main_wp_configured ) . '"
                     :is-domain-spam-score-configured="false"
+                    :is-professional-or-basic="' . esc_attr( $is_professional_or_basic ) . '"
+                    :is-log-only-mode="' . esc_attr( $log_only_mode ) . '"
                     
                     ad-position="' . esc_attr( $ad_position ) . '"
                     
@@ -77,14 +95,20 @@ if ( ! class_exists( 'Post_SMTP_New_Dashboard' ) ) {
         }
 
         public function opened_email_count( $count, $args ) {
-            $current_time = $args['current_time'];
-            $filter       = $args['filter'];
+            $current_time = (int) $args['current_time'];
+            $filter       = (int) $args['filter'];
 
             global $wpdb;
-            $sql = 'SELECT COUNT( * ) FROM %i WHERE event_type = "open-email" AND time <= %d AND time >= %d';
-            $sql = $wpdb->prepare( $sql, $wpdb->prefix . 'post_smtp_tracking', $current_time, $filter );
+            $table_name = $wpdb->prefix . 'post_smtp_tracking';
 
-            return $wpdb->get_var( $sql );
+            return (int) $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT COUNT( * ) FROM {$table_name} WHERE event_type = %s AND time <= %d AND time >= %d",
+                    'open-email',
+                    $current_time,
+                    $filter
+                )
+            );
         }
     }
     

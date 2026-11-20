@@ -11,13 +11,13 @@ if ( isset( $_REQUEST[ 'id' ] ) ) {
 } else {
     $event = new CustomEvent();
 }
-$serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]";
+$serverUrl = pys_get_request_protocol() . "$_SERVER[HTTP_HOST]";
 
 ?>
 <div class="cards-wrapper cards-wrapper-style1 events-page-wrapper gap-24 mb-24">
     <div class="d-flex justify-content-between align-items-center">
-        <span class="font-semibold primary-heading-color fz-18">With the pro you can fire events on clicks, form submit, video views, number of page views, email clicks, and more.</span>
-        <?php renderProBadge();?>
+        <span class="font-semibold primary-heading-color fz-18">With the pro version, you can track any actions without coding. Clicks, time on page, number of pages, form submited, video views and more.</span>
+        <?php renderEventSetupToolBadge();?>
     </div>
 </div>
 
@@ -160,7 +160,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
 
                             if ( $errorMessage != "" ) :?>
                                 <div class="post_type_error mt-16">
-                                    <div class="event_error critical_message"><?= $errorMessage ?>  </div>
+                                    <div class="event_error critical_message"><?= esc_html( $errorMessage ) ?>  </div>
                                 </div>
                             <?php endif;
                         endif; ?>
@@ -363,10 +363,90 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                                         type="button">Add another selector
                                 </button>
                             </div>
+                            <div class="d-flex align-items-center mt-16">
+                                <label class="primary_heading mr-16">Number of clicks required</label>
+                                <?php renderDummyNumberInput( 2 ); ?>
+                            </div>
+
+                            <div class="d-flex align-items-center mt-16">
+                                <label class="primary_heading mr-16">Time limit between clicks (ms, 0&nbsp;=&nbsp;no limit)</label>
+                                <?php renderDummyNumberInput( '3000' ); ?>
+                            </div>
                         </div>
                     <?php endif; ?>
 
                     <div class="insert-marker-trigger css_click_marker"></div>
+
+                    <?php if ( $trigger_type == "copy_element" ) : ?>
+                        <div class="event_triggers_panel copy_element_panel mb-16" data-trigger_type="copy_element"
+                             style="display: none;">
+
+                            <div class="event_trigger mb-16" data-trigger_id="-1" style="display: none;">
+                                <div class="event_trigger_wrapper">
+                                    <div>
+                                        <?php renderDummyTextInput( 'Enter CSS selector' ); ?>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="insert-marker"></div>
+                            <div>
+                                <button class="btn btn-primary btn-primary-type2 add-event-trigger btn-disabled"
+                                        type="button">Add another selector
+                                </button>
+                            </div>
+                            <p class="form-text text-small mt-8">Fires when a visitor copies text from an element matching the selector.</p>
+                        </div>
+                    <?php endif; ?>
+
+                    <div class="insert-marker-trigger copy_element_marker"></div>
+
+                    <?php if ( $trigger_type == "video_speed" ) : ?>
+                        <div class="event_triggers_panel embedded_video_speed video_speed_panel" data-trigger_type="video_speed"
+                             style="display: none;">
+
+                            <div class="event_trigger pro-feature-container" data-trigger_id="0">
+                                <div class="event_trigger_wrapper">
+                                    <div class="w-100">
+                                        <p class="form-text text-small mb-4">Enter video pages URL</p>
+                                        <div class="d-flex align-items-center w-100">
+                                            <div class="flex-1">
+                                                <?php renderDummySelectInput('Video pages URL', true ); ?>
+                                            </div>
+                                            <div class="ml-24">
+                                                <button class="btn btn-primary btn-primary-type2 pys-scan-video"
+                                                        type="button"
+                                                        value="Scan videos">Scan videos
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="pys_video_speed_triggers pro-feature-container" data-trigger_id="0"
+                                 style="<?php echo empty( $speed_data ) ? 'display: none;' : ''; ?>">
+                                <div class="event_trigger mb-16 mt-16" data-trigger_id="0">
+                                    <div class="event_trigger_wrapper">
+                                        <div class="w-100">
+                                            <p class="form-text text-small mb-4">Select videos</p>
+                                            <?php renderDummySelectInput( 'Select videos' ); ?>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="event_trigger pro-feature-container mb-16" data-trigger_id="0">
+                                    <div class="d-flex align-items-center">
+                                        <label class="primary_heading mr-16">Speed change type</label>
+                                        <?php renderDummySelectInput( 'Increase speed' ); ?>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="video_speed_error mt-16" style="display: none">
+                                <div class="event_error critical_message"></div>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+
+                    <div class="insert-marker-trigger video_speed_marker"></div>
 
                     <?php if ( $trigger_type == "css_mouseover" ) : ?>
                         <div class="event_triggers_panel css_mouseover_panel mb-16"
@@ -772,6 +852,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                         </div>
                     <?php endif; ?>
                 </div>
+
                 <div class="insert-marker-add-trigger"></div>
 
                 <?php // Add new event trigger
@@ -925,6 +1006,77 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                     <button class="btn btn-primary btn-primary-type2 add-event-trigger btn-disabled" type="button">Add another
                         selector
                     </button>
+                </div>
+                <div class="d-flex align-items-center mt-16">
+                    <label class="primary_heading mr-16">Number of clicks required</label>
+                    <?php renderDummyNumberInput( 2 ); ?>
+                </div>
+
+                <div class="d-flex align-items-center mt-16">
+                    <label class="primary_heading mr-16">Time limit between clicks (ms, 0&nbsp;=&nbsp;no limit)</label>
+                    <?php renderDummyNumberInput( '3000' ); ?>
+                </div>
+            </div>
+
+            <div class="event_triggers_panel copy_element_panel mb-16" data-trigger_type="copy_element"
+                 style="display: none;">
+
+                <div class="event_trigger mb-16" data-trigger_id="-1" style="display: none;">
+                    <div class="event_trigger_wrapper">
+                        <div>
+                            <?php renderDummyTextInput( 'Enter CSS selector' ); ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="insert-marker"></div>
+                <div>
+                    <button class="btn btn-primary btn-primary-type2 add-event-trigger btn-disabled"
+                            type="button">Add another selector
+                    </button>
+                </div>
+                <p class="form-text text-small mt-8">Fires when a visitor copies text from an element matching the selector.</p>
+            </div>
+
+            <div class="event_triggers_panel embedded_video_speed video_speed_panel" data-trigger_type="video_speed"
+                 style="display: none;">
+
+                <div class="event_trigger pro-feature-container" data-trigger_id="0">
+                    <div class="event_trigger_wrapper">
+                        <div class="w-100">
+                            <p class="form-text text-small mb-4">Enter video pages URL</p>
+                            <div class="d-flex align-items-center w-100">
+                                <div class="flex-1">
+                                    <?php renderDummySelectInput('Video pages URL', true ); ?>
+                                </div>
+                                <div class="ml-24">
+                                    <button class="btn btn-primary btn-primary-type2 pys-scan-video"
+                                            type="button"
+                                            value="Scan videos">Scan videos
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="pys_video_speed_triggers pro-feature-container" data-trigger_id="-1" >
+                    <div class="event_trigger mb-16 mt-16" data-trigger_id="0">
+                        <div class="event_trigger_wrapper">
+                            <div class="w-100">
+                                <p class="form-text text-small mb-4">Select videos</p>
+                                <?php renderDummySelectInput( 'Select videos' ); ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="event_trigger pro-feature-container mb-16" data-trigger_id="-1">
+                        <div class="d-flex align-items-center">
+                            <label class="primary_heading mr-16">Speed change type</label>
+                            <?php renderDummySelectInput( 'Increase speed' ); ?>
+                        </div>
+                    </div>
+                </div>
+                <div class="video_speed_error mt-16" style="display: none">
+                    <div class="event_error critical_message"></div>
                 </div>
             </div>
 
@@ -1133,7 +1285,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                 <div class="event_trigger pro-feature-container mb-16" data-trigger_id="-1" style="display: none;">
                     <div class="event_trigger_wrapper mb-16">
                         <p>This is a PRO trigger. <a class="link"
-                                    href="https://www.pixelyoursite.com/facebook-pixel-plugin/buy-pixelyoursite-pro?utm_source=pixelyoursite-free-plugin&utm_medium=plugin&utm_campaign=free-plugin-pro-trigger"
+                                    href="https://www.pixelyoursite.com/plugins/pixelyoursite-professional"
                                     target="_blank">Upgrade to get all the benefits</a>.</p>
                     </div>
                     <div class="event_trigger_wrapper">
@@ -1321,97 +1473,27 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                     <h4 class="switcher-label secondary_heading">Add Parameters</h4>
                 </div>
                 <div id="facebook_params_panel">
-                    <div class="mt-24 ViewContent Search AddToCart AddToWishlist InitiateCheckout AddPaymentInfo Purchase Lead CompleteRegistration Subscribe StartTrial">
-                        <div class="mb-8">
-                            <label class="custom-event-label">value</label>
+                    <?php
+                    $facebook_events = PYS_Event_Definitions::get_facebook_events();
+                    $fields = $facebook_events[ $event->facebook_event_type ];
+                    foreach ( $fields as $field ) :
+                        $param_key = $field[ 'label' ];
+                        $param_data = isset( $event->facebook_params[ $param_key ] ) ? $event->facebook_params[ $param_key ] : null;
+                        $param_value = $param_data[ 'value' ] ?? $param_data;
+                        ?>
+                        <div class="mt-24">
+                            <div class="mb-8">
+                                <label class="custom-event-label"><?= $field[ 'label' ] ?></label>
+                            </div>
+
+                            <input type="text"
+                                   name="pys[event][facebook_params][<?= $field[ 'label' ] ?>]"
+                                   value="<?= esc_attr( $param_value ); ?>"
+                                   class="input-standard"
+                                   placeholder=""
+                            />
                         </div>
-
-                        <?php Events\renderFacebookParamInput( $event, 'value' ); ?>
-                    </div>
-
-                    <div class="mt-24 ViewContent Search AddToCart AddToWishlist InitiateCheckout AddPaymentInfo Purchase Lead CompleteRegistration Subscribe StartTrial">
-                        <div class="mb-8">
-                            <label class="custom-event-label">currency</label>
-                        </div>
-
-                        <?php Events\renderCurrencyParamInput( $event, 'currency' ); ?>
-
-                        <div class="facebook-custom-currency mt-24">
-                            <?php Events\renderFacebookParamInput( $event, 'custom_currency' ); ?>
-                        </div>
-                    </div>
-
-                    <div class="mt-24 ViewContent AddToCart AddToWishlist InitiateCheckout Purchase Lead CompleteRegistration">
-                        <div class="mb-8">
-                            <label class="custom-event-label">content_name</label>
-                        </div>
-
-                        <?php Events\renderFacebookParamInput( $event, 'content_name' ); ?>
-                    </div>
-
-                    <div class="mt-24 ViewContent AddToCart AddToWishlist InitiateCheckout Purchase Lead CompleteRegistration">
-                        <div class="mb-8">
-                            <label class="custom-event-label">content_ids</label>
-                        </div>
-
-                        <?php Events\renderFacebookParamInput( $event, 'content_ids' ); ?>
-                    </div>
-
-                    <div class="mt-24 ViewContent AddToCart InitiateCheckout Purchase">
-                        <div class="mb-8">
-                            <label class="custom-event-label">content_type</label>
-                        </div>
-
-                        <?php Events\renderFacebookParamInput( $event, 'content_type' ); ?>
-                    </div>
-
-                    <div class="mt-24 Search AddToWishlist InitiateCheckout AddPaymentInfo Lead">
-                        <div class="mb-8">
-                            <label class="custom-event-label">content_category</label>
-                        </div>
-
-                        <?php Events\renderFacebookParamInput( $event, 'content_category' ); ?>
-                    </div>
-
-                    <div class="mt-24 InitiateCheckout Purchase">
-                        <div class="mb-8">
-                            <label class="custom-event-label">num_items</label>
-                        </div>
-
-                        <?php Events\renderFacebookParamInput( $event, 'num_items' ); ?>
-                    </div>
-
-                    <div class="mt-24 Purchase">
-                        <div class="mb-8">
-                            <label class="custom-event-label">order_id</label>
-                        </div>
-
-                        <?php Events\renderFacebookParamInput( $event, 'order_id' ); ?>
-                    </div>
-
-                    <div class="mt-24 Search">
-                        <div class="mb-8">
-                            <label class="custom-event-label">search_string</label>
-                        </div>
-
-                        <?php Events\renderFacebookParamInput( $event, 'search_string' ); ?>
-                    </div>
-
-                    <div class="mt-24 CompleteRegistration">
-                        <div class="mb-8">
-                            <label class="custom-event-label">status</label>
-                        </div>
-
-                        <?php Events\renderFacebookParamInput( $event, 'status' ); ?>
-                    </div>
-
-                    <div class="mt-24 Subscribe StartTrial">
-                        <div class="mb-8">
-                            <label class="custom-event-label">predicted_ltv</label>
-                        </div>
-
-                        <?php Events\renderFacebookParamInput( $event, 'predicted_ltv' ); ?>
-                    </div>
+                    <?php endforeach; ?>
 
                     <!-- Custom Facebook Params -->
                     <div class="facebook-custom-param" data-param_id="0"
@@ -1550,7 +1632,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                     <script>
                         <?php
                         $fields = array();
-                        foreach ( $event->GAEvents as $group => $items ) {
+                        foreach ( PYS_Event_Definitions::get_ga_events() as $group => $items ) {
                             foreach ( $items as $name => $elements ) {
                                 $fields[] = array(
                                     "name"   => $name,
@@ -1585,7 +1667,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                         foreach ( $event->getMergedGaParams() as $key => $val ) : ?>
                             <div class="mb-24 ga_ads_param">
                                 <div class="mb-8">
-                                    <label class="custom-event-label"><?= $key ?></label>
+                                    <label class="custom-event-label"><?= esc_html( $key ) ?></label>
                                 </div>
 
                                 <?php Events\renderMergedGAParamInput( $key, $val ); ?>
@@ -1676,7 +1758,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
             </div>
             <div class="custom-event-pixel-status">
 
-                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag/?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
+                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
 
 
                 <label class="card-header-label" for="ads_custom_event_switch">
@@ -1775,7 +1857,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                 <h4 class="font-semibold main-switcher">TikTok </h4>
             </div>
             <div class="custom-event-pixel-status">
-                <?php renderProBadge('https://www.pixelyoursite.com/tiktok-tag-pixelyoursite/?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
+                <?php renderProBadge('https://www.pixelyoursite.com/tiktok-tag-pixelyoursite?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
 
                 <label class="card-header-label" for="ads_custom_event_switch">
                     <?php include PYS_FREE_VIEW_PATH . '/UI/properties-button-off.php'; ?>
@@ -1832,13 +1914,164 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
         </div>
     </div>
 
-    <?php if ( Pinterest()->enabled() ) : ?>
-        <?php Pinterest()->renderCustomEventOptions( $event ); ?>
-    <?php endif; ?>
+    <?php if ( OpenAI()->enabled() ) :
+        $openai_configured = OpenAI()->enabled() && !empty( OpenAI()->getPixelIDs() );
+        $openai_events     = PYS_Event_Definitions::get_openai_events();
+        $openai_type       = $event->openai_event_type;
+        ?>
+        <div class="card card-style4" data-configured="<?php echo $openai_configured ? '1' : '0'; ?>">
+            <input type="checkbox" class="event-settings-checkbox" id="openai_custom_event_switch"
+                   style="display: none">
 
-    <?php if ( Bing()->enabled() ) : ?>
-        <?php Bing()->renderCustomEventOptions( $event ); ?>
-    <?php endif; ?>
+            <div class="card-header card-header-style3 d-flex justify-content-between align-items-center">
+                <div class="custom-event-pixel-header">
+                    <img src="<?php echo esc_url( PYS_FREE_URL . '/dist/images/openai-logo.svg' ); ?>" alt="openai-logo"
+                         class="pixel-logo">
+                    <h4 class="font-semibold main-switcher">OpenAI</h4>
+                </div>
+
+                <div class="custom-event-pixel-status">
+					<?php $enabled = $event->openai_enabled && $openai_configured; ?>
+
+                    <div class="pixel-status">
+                        <p class="status pixel-enabled" style="<?php echo $enabled ? '' : 'display: none'; ?>">
+                            Active
+                        </p>
+
+                        <p class="status pixel-disabled" style="<?php echo $enabled ? 'display: none' : ''; ?>">
+                            Inactive
+                        </p>
+                    </div>
+
+                    <label class="card-header-label" for="openai_custom_event_switch">
+						<?php include PYS_FREE_VIEW_PATH . '/UI/properties-button-off.php'; ?>
+                    </label>
+                </div>
+            </div>
+
+            <div class="card-body">
+                <div class="openai-not-configured-error mb-24">
+                    <div class="event_error critical_message">Error: OpenAI pixel is not configured</div>
+                </div>
+
+                <div class="d-flex align-items-center mb-24">
+					<?php Events\renderSwitcherInput( $event, 'openai_enabled' ); ?>
+                    <h4 class="switcher-label secondary_heading">Enable on OpenAI</h4>
+                </div>
+
+                <div id="openai_panel" class="pixel_panel">
+                    <div class="mb-24">
+                        <div class="mb-8">
+                            <label class="custom-event-label">Fire for:</label>
+                        </div>
+
+						<?php Events\renderOpenAIEventId( $event, 'openai_pixel_id' ); ?>
+                    </div>
+
+                    <div class="mb-24">
+                        <div class="mb-8">
+                            <label class="custom-event-label">Event type:</label>
+                        </div>
+
+						<?php Events\renderOpenAIEventTypeInput( $event, 'openai_event_type' ); ?>
+
+                        <?php
+						$openai_name_open = CustomEvent::getOpenAIDataType( $openai_type ) === 'custom';
+						?>
+                        <div class="openai-custom-event-type mt-16"<?php echo $openai_name_open ? '' : ' style="display: none;"'; ?>>
+							<?php Events\renderTextInput( $event, 'openai_custom_event_type', 'Enter name' ); ?>
+                            <p class="form-text text-small">1-64 characters: letters, digits, _ and -, starting and
+                                ending with a letter or a digit.</p>
+                        </div>
+                    </div>
+
+                    <div class="d-flex align-items-center">
+						<?php Events\renderSwitcherInput( $event, 'openai_params_enabled' ); ?>
+                        <h4 class="switcher-label secondary_heading">Add Parameters</h4>
+                    </div>
+
+                    <?php
+					$openai_params_open = (bool) $event->openai_params_enabled;
+					?>
+                    <div id="openai_params_panel"<?php echo $openai_params_open ? '' : ' style="display: none;"'; ?>>
+						<?php
+						$fields = isset( $openai_events[ $openai_type ] ) ? $openai_events[ $openai_type ] : array();
+
+						foreach ( $fields as $field ) :
+							$param_key   = $field[ 'label' ];
+							$param_value = isset( $event->openai_params[ $param_key ] ) ? $event->openai_params[ $param_key ] : '';
+							$param_value = is_array( $param_value ) ? ( $param_value[ 'value' ] ?? '' ) : $param_value;
+							?>
+                            <div class="mt-24 param-field-wrapper" data-param-key="<?php echo esc_attr( $param_key ); ?>">
+                                <div class="mb-8">
+                                    <label class="custom-event-label"><?php echo esc_html( $field[ 'ui_label' ] ?? $param_key ); ?></label>
+                                </div>
+
+                                <input type="text"
+                                       name="pys[event][openai_params][<?php echo esc_attr( $param_key ); ?>]"
+                                       value="<?php echo esc_attr( $param_value ); ?>"
+                                       class="input-standard"
+                                       placeholder="<?php echo esc_attr( $param_key === 'amount' ? '129.99' : ( $param_key === 'currency' ? 'USD' : '' ) ); ?>"
+									<?php if ( $param_key === 'currency' ) : ?>
+                                       pattern="[A-Za-z]{3}" maxlength="3"
+                                       list="pys-openai-currencies"
+                                       title="Three-letter ISO 4217 code, for example USD"
+									<?php endif; ?>
+                                />
+
+								<?php if ( $param_key === 'currency' ) : ?>
+                                    <datalist id="pys-openai-currencies">
+										<?php foreach ( OpenAI\Helpers\pys_openai_currency_codes() as $iso_code ) : ?>
+                                            <option value="<?php echo esc_attr( $iso_code ); ?>"></option>
+										<?php endforeach; ?>
+                                    </datalist>
+
+                                    <p class="form-text text-small">Three-letter ISO 4217 code, for example
+                                        <code>USD</code>.</p>
+								<?php endif; ?>
+
+								<?php if ( $param_key === 'amount' ) : ?>
+                                    <p class="form-text text-small">Enter the amount as a decimal.</p>
+								<?php endif; ?>
+                            </div>
+						<?php endforeach; ?>
+
+                    </div>
+
+                    <div class="pro-feature-container mb-24 mt-24">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center justify-content-start">
+				                <?php renderDummySwitcher(); ?>
+                                <h4 class="switcher-label secondary_heading">Track WooCommerce product data on single product pages</h4>
+                            </div>
+			                <?php renderProBadge( 'https://www.pixelyoursite.com/?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature' ); ?>
+                        </div>
+                    </div>
+                    <div class="pro-feature-container mb-24">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center justify-content-start">
+				                <?php renderDummySwitcher(); ?>
+                                <h4 class="switcher-label secondary_heading">Track WooCommerce cart data when possible</h4>
+                            </div>
+			                <?php renderProBadge( 'https://www.pixelyoursite.com/?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature' ); ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+	<?php endif; ?>
+
+	<?php if ( Pinterest()->enabled() ) : ?>
+		<?php Pinterest()->renderCustomEventOptions( $event ); ?>
+	<?php endif; ?>
+
+	<?php if ( Bing()->enabled() ) : ?>
+		<?php Bing()->renderCustomEventOptions( $event ); ?>
+	<?php endif; ?>
+
+	<?php if ( Reddit()->enabled() ) : ?>
+		<?php Reddit()->renderCustomEventOptions( $event ); ?>
+	<?php endif; ?>
 
     <?php if ( GTM()->enabled() ) :
         $gtm_configured = GTM()->enabled() && !empty( GTM()->getPixelIDs() );
@@ -1917,7 +2150,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                     <script>
                         <?php
                         $fields = array();
-                        foreach ( $event->GAEvents as $group => $items ) {
+                        foreach ( PYS_Event_Definitions::get_ga_events() as $group => $items ) {
                             foreach ( $items as $name => $elements ) {
                                 $fields[] = array(
                                     "name"   => $name,
@@ -1951,7 +2184,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                         foreach ( $event->getGTMParams() as $key => $val ) : ?>
                             <div class="mb-24 gtm_param">
                                 <div class="mb-8">
-                                    <label class="custom-event-label"><?= $key ?></label>
+                                    <label class="custom-event-label"><?= esc_html( $key ) ?></label>
                                 </div>
 
                                 <?php Events\renderGTMParamInput( $key, $val ); ?>
@@ -2028,7 +2261,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                     <p class="primary-heading-color mt-24">
                         When configuring GTM variables for these parameters, use this key: <span
                                 class="event-parameter-list"
-                                id="manual_custom_object_name"><?= $event->getManualCustomObjectName(); ?></span>
+                                id="manual_custom_object_name"><?= esc_html( $event->getManualCustomObjectName() ); ?></span>
                     </p>
 
                     <p class="gtm_woo_info primary-heading-color mt-24">
@@ -2102,7 +2335,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
             </p>
 
             <p>Example:</p>
-            <p>This is your URL: <?= $serverUrl ?>?ParameterName=123</p>
+            <p>This is your URL: <?= esc_html( $serverUrl ) ?>?ParameterName=123</p>
             <p class="mb-20">The parameter value will be 123.</p>
 
             <p class="mb-20">
@@ -2132,7 +2365,7 @@ $serverUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" :
                 <span class="event-parameter-list">[mepr-ecommerce-tracking]Message with %%variables%% in here[/mepr-ecommerce-tracking]</span>
             </p>
             <p class="mb-20">Available parameters are described <a
-                        href="https://docs.memberpress.com/article/112-available-shortcodes" target="_blank" class="link">here</a>.
+                        href="https://memberpress.com/docs/available-shortcodes/" target="_blank" class="link">here</a>.
             </p>
 
             <p>All variables must have the prefix "mp_".</p>

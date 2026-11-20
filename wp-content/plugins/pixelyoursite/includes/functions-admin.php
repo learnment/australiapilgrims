@@ -135,12 +135,15 @@ function getAdminSecondaryNavTabs() {
         'pos' => 50,
         'icon' => PYS_FREE_URL . '/dist/images/filter-icon.svg'
     );
-    $tabs['logs'] = array(
-        'url'  => buildAdminUrl( 'pixelyoursite', 'logs' ),
-        'name' => 'Logs',
-        'pos' => 60,
-        'icon' => PYS_FREE_URL . '/dist/images/logs-icon.svg'
-    );
+    // logs can contain customer data
+    if ( current_user_can( 'manage_pys_data_export' ) ) {
+        $tabs['logs'] = array(
+            'url'  => buildAdminUrl( 'pixelyoursite', 'logs' ),
+            'name' => 'Logs',
+            'pos' => 60,
+            'icon' => PYS_FREE_URL . '/dist/images/logs-icon.svg'
+        );
+    }
 
 
     uasort($tabs,function ($first,$second){
@@ -173,19 +176,51 @@ function renderCollapseTargetAttributes( $key, $settings ) {
     echo 'class="pys_' . $settings->getSlug() . '_' . esc_attr( $key ) . '_panel"';
 }
 
+/**
+ * Sync the plugin capabilities with the role lists stored in settings.
+ * Scoped capabilities are always limited to roles holding general access.
+ */
 function manageAdminPermissions() {
     global $wp_roles;
 
-    $roles = PYS()->getOption( 'admin_permissions', array( 'administrator' ) );
+    $admin_roles   = (array) PYS()->getOption( 'admin_permissions', array( 'administrator' ) );
+    $reports_roles = (array) PYS()->getOption( 'woo_edd_reports_permissions', array( 'administrator' ) );
+    $export_roles  = (array) PYS()->getOption( 'woo_edd_export_permissions', array( 'administrator' ) );
+
+    $capabilities = array(
+        'manage_pys'             => $admin_roles,
+        'manage_pys_reports'     => array_intersect( $reports_roles, $admin_roles ),
+        'manage_pys_data_export' => array_intersect( $export_roles, $admin_roles ),
+    );
 
     foreach ( $wp_roles->roles as $role => $options ) {
-
-        if ( in_array( $role, $roles ) ) {
-            $wp_roles->add_cap( $role, 'manage_pys' );
-        } else {
-            $wp_roles->remove_cap( $role, 'manage_pys' );
+        foreach ( $capabilities as $capability => $allowed_roles ) {
+            syncRoleCapability( $role, $capability, in_array( $role, $allowed_roles ) );
         }
+    }
+}
 
+/**
+ * Grant or revoke a capability only when the role state actually changes,
+ * since add_cap()/remove_cap() rewrite the whole roles option.
+ *
+ * @param string $role       Role slug.
+ * @param string $capability Capability name.
+ * @param bool   $granted    Should the role hold the capability?
+ */
+function syncRoleCapability( $role, $capability, $granted ) {
+    global $wp_roles;
+
+    $has_capability = ! empty( $wp_roles->roles[ $role ]['capabilities'][ $capability ] );
+
+    if ( $granted === $has_capability ) {
+        return;
+    }
+
+    if ( $granted ) {
+        $wp_roles->add_cap( $role, $capability );
+    } else {
+        $wp_roles->remove_cap( $role, $capability );
     }
 }
 
@@ -258,6 +293,21 @@ function adminIncompatibleVersionNotice( $pluginName, $minVersion ) {
     <?php
 }
 
+function pys_meta_pixel_missing_capi() {
+    if (!Facebook()->enabled()) {
+        return false;
+    }
+    $pixel_ids = (array) Facebook()->getOption('pixel_id');
+    $main_pixel_set = !empty($pixel_ids) && !empty($pixel_ids[0]);
+    if (!$main_pixel_set) {
+        return false;
+    }
+    $use_server_api = Facebook()->getOption('use_server_api');
+    $tokens = (array) Facebook()->getOption('server_access_api_token');
+    $token  = reset($tokens);
+    return (!$use_server_api || empty($token));
+}
+
 function adminRenderNotices() {
 
 
@@ -274,21 +324,10 @@ function adminRenderNotices() {
      */
 
     $now = time();
-    $apiTokens = Facebook()->getOption('server_access_api_token');
-    if(Facebook()->enabled() && !$apiTokens)
-    {
-        $meta_key = 'pys_notice_dont_CAPI_start_delay';
-        $user_id = get_current_user_id();
-        $start_delay = get_option( $meta_key ) ?? get_user_meta( $user_id, $meta_key );
-        $day_ago = time() - DAY_IN_SECONDS;
-        if($start_delay && $start_delay > $day_ago) {
-            adminRenderNotCAPI(PYS());
-        }
-        else if(!$start_delay){
-            update_option($meta_key, time());
-        }
-
+    if (pys_meta_pixel_missing_capi()) {
+        adminRenderCapiNudgeNotice();
     }
+    adminRenderPageCacheMatchingNotice();
     if ( isPinterestActive( false ) && isPinterestVersionIncompatible() ) {
         adminIncompatibleVersionNotice( 'PixelYourSite Pinterest Add-On', PYS_FREE_PINTEREST_MIN_VERSION );
     } elseif ( isPinterestActive() ) {
@@ -322,32 +361,20 @@ function adminRenderNotices() {
     }
 
     $ga_tracking_id = GA()->getPixelIDs() ;
-    $noticeRenderNotSupportUA = false;
     if ( GA()->enabled() && empty( $ga_tracking_id ) ) {
         $no_ga_pixels = true;
-
     } else {
         $no_ga_pixels = false;
-        if (!isGaV4($ga_tracking_id)) {
-            $noticeRenderNotSupportUA = true;
-        }
     }
-    if(GA()->enabled() && $noticeRenderNotSupportUA){
-        adminRenderNotSupportUA($noticeRenderNotSupportUA);
-    }
-    $pinterest_pixel_id = Pinterest()->getOption( 'pixel_id' );
-    $pinterest_license_status = Pinterest()->getOption( 'license_status' );
-
-    if ( isPinterestActive() && Pinterest()->enabled()
-         && ! empty( $pinterest_license_status ) // license active or was active before
-         && empty( $pinterest_pixel_id ) ) {
-        $no_pinterest_pixels = true;
-    } else {
-        $no_pinterest_pixels = false;
-    }
-
+    $no_pinterest_pixels = false;
     if ( isPinterestActive() ) {
-
+        $pinterest_pixel_id = Pinterest()->getOption( 'pixel_id' );
+        $pinterest_license_status = Pinterest()->getOption( 'license_status' );
+        if ( Pinterest()->enabled()
+                && ! empty( $pinterest_license_status ) // license active or was active before
+                && empty( $pinterest_pixel_id )){
+            $no_pinterest_pixels = true;
+        }
         if ( $no_facebook_pixels && $no_ga_pixels && $no_pinterest_pixels ) {
             adminRenderNoPixelsNotice();
         } else {
@@ -422,7 +449,7 @@ function adminRenderLicenseExpirationNotice( $plugin ) {
 
     // show only if never dismissed or dismissed more than a week ago
     $meta_key = 'pys_' . $slug . '_expiration_notice_dismissed_at';
-    $dismissed_at = get_option($meta_key) ?? get_user_meta( $user_id, $meta_key );
+    $dismissed_at = get_option( $meta_key );
     if ( $dismissed_at ) {
 
         if ( is_array( $dismissed_at ) ) {
@@ -445,7 +472,7 @@ function adminRenderLicenseExpirationNotice( $plugin ) {
         <p><strong>Your <?php echo $plugin->getPluginName(); ?> license key is expired</strong>, so you no longer get any updates. Don't miss our
             latest improvements and make sure that everything works smoothly.</p>
         <p>If you renewed your license but you still see this message, click on the "<a href="<?php echo esc_url( buildAdminUrl( 'pixelyoursite_licenses' ) ); ?>">Reactivate License</a>" button.</p>
-        <p class="mb-0"><a href="https://www.pixelyoursite.com/checkout/?edd_license_key=<?php echo esc_attr(
+        <p class="mb-0"><a href="https://www.pixelyoursite.com/checkout-2?edd_license_key=<?php echo esc_attr(
                 $license_key ); ?>&utm_campaign=admin&utm_source=licenses&utm_medium=renew" target="_blank"><strong>Click here to renew your license now</strong></a></p>
     </div>
 
@@ -469,6 +496,64 @@ function adminRenderLicenseExpirationNotice( $plugin ) {
     <?php
 }
 
+/**
+ * Data admin.js needs to detect the cookie domain, for wp_localize_script().
+ *
+ * Detection is asked for only while nothing else answers: the option is
+ * empty, no filter is set, and the site wants subdomain cookies at all. With
+ * the option off host-only is the answer and there is nothing to detect.
+ *
+ * @return array
+ */
+function pys_cookie_domain_detect_data() {
+    $wanted = pys_cookie_domain_track_subdomains()
+        && '' === pys_cookie_domain_setting()
+        && ! has_filter( 'pys_cookie_domain_override' );
+
+    return array(
+        'detect' => $wanted ? '1' : '',
+        'nonce'  => wp_create_nonce( 'pys_save_cookie_domain' ),
+        'action' => 'pys_save_cookie_domain',
+    );
+}
+
+/**
+ * Store the cookie domain an administrator's browser just verified.
+ *
+ * Posted by admin.js (detectCookieDomain()) after it ran the same probe
+ * public.js runs. The value is validated by pys_cookie_domain_accept_detected():
+ * it must cover the host this request arrived on, and an existing value is
+ * never overwritten. Nothing here trusts the browser beyond that — the
+ * capability is the real gate, and this is the same person who can type any
+ * value into the settings page.
+ */
+add_action( 'wp_ajax_pys_save_cookie_domain', 'PixelYourSite\pysSaveCookieDomainHandler' );
+function pysSaveCookieDomainHandler() {
+
+    if ( empty( $_REQUEST['nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_REQUEST['nonce'] ) ), 'pys_save_cookie_domain' ) ) {
+        wp_send_json_error( 'bad nonce', 403 );
+    }
+
+    if ( ! current_user_can( 'manage_pys' ) ) {
+        wp_send_json_error( 'forbidden', 403 );
+    }
+
+    $detected = isset( $_REQUEST['domain'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['domain'] ) ) : '';
+    $accepted = pys_cookie_domain_accept_detected(
+        $detected,
+        pys_cookie_domain_request_host(),
+        pys_cookie_domain_setting()
+    );
+
+    if ( '' === $accepted ) {
+        wp_send_json_success( array( 'stored' => false ) );
+    }
+
+    PYS()->updateOptions( array( PYS_COOKIE_DOMAIN_OPTION => $accepted ) );
+
+    wp_send_json_success( array( 'stored' => true, 'domain' => $accepted ) );
+}
+
 add_action( 'wp_ajax_pys_notice_dismiss', 'PixelYourSite\adminNoticeDismissHandler' );
 function adminNoticeDismissHandler() {
 
@@ -486,56 +571,129 @@ function adminNoticeDismissHandler() {
 
 }
 
-function adminRenderNotCAPI( $plugin ) {
-
-    $slug = $plugin->getSlug();
-    $user_id = get_current_user_id();
-
-    // show only if never dismissed or dismissed more than a week ago
-    $meta_key = 'pys_' . $slug . '_CAPI_notice_dismissed_at';
-    $dismissed_at = get_option( $meta_key ) ?? get_user_meta( $user_id, $meta_key );
-    if ( $dismissed_at ) {
-
-        if ( is_array( $dismissed_at ) ) {
-            $dismissed_at = reset( $dismissed_at );
-        }
-
-        $week_ago = time() - WEEK_IN_SECONDS;
-
-        if ( $week_ago < $dismissed_at ) {
-            return;
-        }
-        else
-        {
-            ?>
-            <div class="notice notice-error is-dismissible pys_<?php echo esc_attr( $slug ); ?>_CAPI_notice">
-                <p><b>PixelYourSite Tip: </b>Don't forget to enable Meta Conversion API events. They can improve your ads performance and conversion tracking. Watch this video to learn how: <a href="https://www.youtube.com/watch?v=1rKd57SS094" target="_blank">watch the video</a>.</p>
-            </div>
-            <?php
-        }
-
+function adminRenderCapiNudgeNotice() {
+    if (!current_user_can('manage_options')) {
+        return;
     }
-    else
-    {
-        ?>
-        <div class="notice notice-error is-dismissible pys_<?php echo esc_attr( $slug ); ?>_CAPI_notice">
-            <p><b>PixelYourSite Tip: </b>Improve your Meta Ads conversion tracking and performance with Conversion API events. Simply add your token to enable CAPI. Watch this video to learn how to do it: <a href="https://www.youtube.com/watch?v=1rKd57SS094" target="_blank">watch the video</a>.</p>
-        </div>
-        <?php
+    $user_id  = get_current_user_id();
+    $dismissed = get_user_meta($user_id, 'pys_capi_nudge_dismissed', true);
+    if ($dismissed) {
+        return;
     }
     ?>
+    <div class="notice notice-warning is-dismissible pys_capi_nudge_notice pys-notice">
+        <p>
+            <b>Configure Meta Conversion API in PixelYourSite!</b>
+            It will help with conversion measurement and optimisation.
+            <a href="https://www.youtube.com/watch?v=fAwsayYLo5s" target="_blank" class="notice-link">
+                Check this video to learn how to do it.
+            </a>
+        </p>
+    </div>
+    <script type="application/javascript">
+        jQuery(document).on('click', '.pys_capi_nudge_notice .notice-dismiss', function () {
+            jQuery.ajax({
+                url: ajaxurl,
+                type: 'POST',
+                data: {
+                    action: 'pys_capi_nudge_dismiss',
+                    nonce: '<?php echo esc_attr(wp_create_nonce('pys_capi_nudge_dismiss')); ?>',
+                    user_id: '<?php echo esc_attr($user_id); ?>'
+                }
+            });
+        });
+    </script>
+    <?php
+}
+
+add_action('wp_ajax_pys_capi_nudge_dismiss', 'PixelYourSite\adminCapiNudgeDismissHandler');
+
+function adminCapiNudgeDismissHandler() {
+    if (empty($_REQUEST['nonce']) || !wp_verify_nonce($_REQUEST['nonce'], 'pys_capi_nudge_dismiss')) {
+        wp_send_json_error(); return;
+    }
+    if (empty($_REQUEST['user_id'])) {
+        wp_send_json_error(); return;
+    }
+    $user_id = (int) $_REQUEST['user_id'];
+    if ($user_id !== get_current_user_id()) {
+        wp_send_json_error(); return;
+    }
+    update_user_meta($user_id, 'pys_capi_nudge_dismissed', true);
+    wp_send_json_success();
+}
+
+/**
+ * True when a known page-cache plugin/feature is active.
+ */
+function pys_page_cache_detected() {
+    return defined( 'WP_ROCKET_VERSION' )
+        || defined( 'WPCACHEHOME' )
+        || defined( 'LSCWP_V' )
+        || defined( 'W3TC' )
+        || function_exists( 'wp_cache_is_enabled' );
+}
+
+/**
+ * True when Advanced Matching is enabled on the Facebook pixel.
+ */
+function pys_any_advanced_matching_enabled() {
+    return ( Facebook()->enabled() && Facebook()->getOption( 'advanced_matching_enabled' ) )
+        || ( OpenAI()->enabled() && OpenAI()->getOption( 'advanced_matching_enabled' ) );
+}
+
+function adminRenderPageCacheMatchingNotice() {
+
+    if ( ! isset( $_GET['page'] ) || strpos( $_GET['page'], 'pixelyoursite' ) !== 0 ) {
+        return;
+    }
+
+    if ( ! pys_page_cache_detected() ) {
+        return;
+    }
+
+    if ( PYS()->getOption( 'fetch_user_data_via_rest' ) ) {
+        return;
+    }
+
+    if ( ! pys_any_advanced_matching_enabled() ) {
+        return;
+    }
+
+    $user_id = get_current_user_id();
+
+    // permanent dismissal; adminNoticeDismissHandler() stores it with update_option()
+    $meta_key = 'pys_page_cache_matching_dismissed_at';
+    $dismissed_at = get_option( $meta_key );
+    if ( $dismissed_at ) {
+        return;
+    }
+
+    ?>
+
+    <div class="notice notice-info is-dismissible pys_page_cache_matching_notice pys-notice">
+        <p>
+            <?php _e(
+                'A page cache is active. Advanced Matching for visitors who are not logged in is handled in the '
+                . 'browser and is cache-safe. If your cache also serves cached pages to logged-in visitors, enable '
+                . '&ldquo;Fetch visitor data via REST API&rdquo; in PixelYourSite settings so their profile data is '
+                . 'not shared between accounts.',
+                'pys'
+            ); ?>
+        </p>
+    </div>
 
     <script type="application/javascript">
-        jQuery(document).on('click', '.pys_<?php echo esc_attr( $slug ); ?>_CAPI_notice .notice-dismiss', function () {
+        jQuery(document).on('click', '.pys_page_cache_matching_notice .notice-dismiss', function () {
 
             jQuery.ajax({
                 url: ajaxurl,
                 data: {
-                    action: 'pys_notice_CAPI_dismiss',
-                    nonce: '<?php echo esc_attr( wp_create_nonce( 'pys_notice_CAPI_dismiss' ) ); ?>',
+                    action: 'pys_notice_dismiss',
+                    nonce: '<?php echo esc_attr( wp_create_nonce( 'pys_notice_dismiss' ) ); ?>',
                     user_id: '<?php echo esc_attr( $user_id ); ?>',
-                    addon_slug: '<?php echo esc_attr( $slug ); ?>',
-                    meta_key: 'CAPI_notice'
+                    addon_slug: 'page_cache',
+                    meta_key: 'matching'
                 }
             })
 
@@ -544,25 +702,6 @@ function adminRenderNotCAPI( $plugin ) {
 
     <?php
 }
-
-add_action( 'wp_ajax_pys_notice_CAPI_dismiss', 'PixelYourSite\adminNoticeCAPIDismissHandler' );
-
-function adminNoticeCAPIDismissHandler() {
-
-    if ( empty( $_REQUEST['nonce'] ) || ! wp_verify_nonce( $_REQUEST['nonce'], 'pys_notice_CAPI_dismiss' ) ) {
-        return;
-    }
-
-    if ( empty( $_REQUEST['user_id'] ) || empty( $_REQUEST['addon_slug'] ) || empty( $_REQUEST['meta_key'] ) ) {
-        return;
-    }
-
-    // save time when notice was dismissed
-    $meta_key = 'pys_' . sanitize_text_field( $_REQUEST['addon_slug'] ) . '_' . sanitize_text_field( $_REQUEST['meta_key'] ) . '_dismissed_at';
-    update_option( $meta_key, time() );
-    die();
-}
-
 
 function adminRenderActivatePinterestLicence() {
 
@@ -604,7 +743,7 @@ function adminRenderNoPixelsNotice() {
 
     // do not show dismissed notice
     $meta_key = 'pys_core_no_pixels_dismissed_at';
-    $dismissed_at = get_option( $meta_key ) ?? get_user_meta( $user_id, $meta_key );
+    $dismissed_at = get_option( $meta_key );
     if ( $dismissed_at ) {
         return;
     }
@@ -638,65 +777,6 @@ function adminRenderNoPixelsNotice() {
 }
 
 
-function adminRenderNotSupportUA( $show = false) {
-
-
-    $user_id = get_current_user_id();
-
-    // show only if never dismissed or dismissed more than a week ago
-    $meta_key = 'pys_ga_UA_notice_dismissed_at';
-    $dismissed_at = get_option( $meta_key ) ?? get_user_meta( $user_id, $meta_key );
-    $week_ago = time() - WEEK_IN_SECONDS;
-    if ( $dismissed_at && is_array( $dismissed_at ) ) {
-        $dismissed_at = reset( $dismissed_at );
-    }
-    if ( !$dismissed_at || ($dismissed_at && $dismissed_at < $week_ago) && $show) {
-            ?>
-            <div class="notice notice-error is-dismissible pys_ga_UA_notice">
-                <p><b>PixelYourSite Tip: </b>The old Universal Analytics properties are not supported by Google Analytics anymore. You must use the new GA4 properties instead. <a href="https://www.youtube.com/watch?v=KkiGbfl1q48" target="_blank">Watch this video to find how to get your GA4 tag</a>.</p>
-            </div>
-            <?php
-    }
-    ?>
-
-    <script type="application/javascript">
-        jQuery(document).on('click', '.pys_ga_UA_notice .notice-dismiss', function () {
-
-            jQuery.ajax({
-                url: ajaxurl,
-                data: {
-                    action: 'pys_notice_UA_dismiss',
-                    nonce: '<?php echo esc_attr( wp_create_nonce( 'pys_notice_UA_dismiss' ) ); ?>',
-                    user_id: '<?php echo esc_attr( $user_id ); ?>',
-                    addon_slug: 'ga',
-                    meta_key: 'UA_notice'
-                }
-            })
-
-        })
-    </script>
-
-    <?php
-}
-add_action( 'wp_ajax_pys_notice_UA_dismiss', 'PixelYourSite\adminNoticeUADismissHandler' );
-
-function adminNoticeUADismissHandler() {
-
-    if ( empty( $_REQUEST['nonce'] ) || ! wp_verify_nonce( $_REQUEST['nonce'], 'pys_notice_UA_dismiss' ) ) {
-        return;
-    }
-
-    if ( empty( $_REQUEST['user_id'] ) || empty( $_REQUEST['addon_slug'] ) || empty( $_REQUEST['meta_key'] ) ) {
-        return;
-    }
-
-    // save time when notice was dismissed
-    $meta_key = 'pys_' . sanitize_text_field( $_REQUEST['addon_slug'] ) . '_' . sanitize_text_field( $_REQUEST['meta_key'] ) . '_dismissed_at';
-    update_option( $meta_key, time() );
-    die();
-}
-
-
 /**
  * @param Plugin|Settings $plugin
  */
@@ -711,7 +791,7 @@ function adminRenderNoPixelNotice( $plugin ) {
 
     // do not show dismissed notice
     $meta_key = 'pys_' . $slug . '_no_pixel_dismissed_at';
-    $dismissed_at = get_option( $meta_key ) ?? get_user_meta( $user_id, $meta_key );
+    $dismissed_at = get_option( $meta_key );
     if ( $dismissed_at ) {
         return;
     }
@@ -930,15 +1010,24 @@ function renderProBadge( $url = null,$label = "PRO Feature" ) {
     echo '&nbsp;<a href="' . esc_url( $url ) . '" target="_blank" class="badge badge-pill badge-pro">'.$label.' <i class="fa fa-external-link" aria-hidden="true"></i></a>';
 }
 
+function renderEventSetupToolBadge( $label = 'Event Setup Tool' ) {
+
+    $url = 'https://www.pixelyoursite.com/docs/event-setup-tool-guide?utm_source=pys-free-plugin&utm_medium=EST-badge&utm_campaign=EST-badge';
+
+    echo '&nbsp;<a href="' . esc_url( $url ) . '" target="_blank" class="badge badge-pill badge-pro">'
+        . esc_html( $label ) . ' <i class="fa fa-external-link" aria-hidden="true"></i></a>';
+}
+
+
 function renderCogBadge( $label = "You need this plugin" ) {
 
-	$url = 'https://www.pixelyoursite.com/woocommerce-cost-of-goods';
+	$url = 'https://www.pixelyoursite.com/plugins/woocommerce-cost-of-goods';
 
 	echo '&nbsp;<a href="' . esc_url( $url ) . '" target="_blank" class="badge badge-pill badge-pro">'.$label.' <i class="fa fa-external-link" aria-hidden="true"></i></a>';
 }
 
 function renderSpBadge() {
-    echo '&nbsp;<a href="https://www.pixelyoursite.com/super-pack?utm_source=pixelyoursite-free-plugin&utm_medium=plugin&utm_campaign=free-plugin-super-pack" target="_blank" class="badge badge-pill badge-pro">PRO Feature</a>';
+    echo '&nbsp;<a href="https://www.pixelyoursite.com/plugins/pixelyoursite-professional/the-super-pack?utm_source=pixelyoursite-free-plugin&utm_medium=plugin&utm_campaign=free-plugin-super-pack" target="_blank" class="badge badge-pill badge-pro">PRO Feature</a>';
 }
 
 function renderHfBadge() {
@@ -1044,4 +1133,119 @@ function renderWarningMessage( $message ) {
     </div>
 
     <?php
+}
+
+/**
+ * Render platform switcher with API requirement message
+ *
+ * @param object $platform Platform object (Facebook(), GA(), Tiktok(), Pinterest())
+ * @param string $setting_key Setting key for the switcher
+ * @param string $label_template Label text template (use %s for module name placeholder)
+ * @param string $api_message API requirement message (optional, will use default if not provided)
+ * @param callable|null $plugin_check_callback Callback function to check if required plugin is active (optional)
+ * @param string $plugin_missing_message Message to display when required plugin is not active (optional)
+ */
+function renderPlatformSwitcher( $platform, $setting_key, $label_template, $api_message = '', $plugin_active = true ) {
+    // Check if required plugin is active
+    $is_disabled = !$platform->configured() || !method_exists($platform, 'isServerApiEnabled') || !$platform->isServerApiEnabled() || !$plugin_active;
+    $show_warning = $is_disabled && $plugin_active;
+
+    if ( empty( $api_message ) ) {
+        $api_message = __( 'API is required.', 'pys' );
+    }
+
+    // Get module name safely
+    $module_name = method_exists( $platform, 'getModuleName' ) ? $platform->getModuleName() : '';
+
+    // Replace %s with module name in label if placeholder exists
+    $label = !empty( $module_name ) && strpos( $label_template, '%s' ) !== false
+            ? sprintf( $label_template, $module_name )
+            : $label_template;
+
+    // Replace %s with module name in API message if placeholder exists
+    $api_message_formatted = !empty( $module_name ) && strpos( $api_message, '%s' ) !== false
+            ? sprintf( $api_message, $module_name )
+            : $api_message;
+
+    // Determine which message to show
+    $warning_message = '';
+    if ( $show_warning && !empty( $module_name ) ) {
+        $warning_message = $api_message_formatted;
+    }
+    ?>
+    <div class="d-flex align-items-center">
+        <?php renderDummySwitcher(); ?>
+        <h4 class="switcher-label secondary_heading">
+            <?php echo esc_html( $label ); ?>
+            <?php if ( !empty( $warning_message ) ) : ?>
+                <small class="text-danger">
+                    (<?php echo esc_html( $warning_message ); ?>)
+                </small>
+            <?php endif; ?>
+        </h4>
+    </div>
+    <?php
+}
+/**
+ * Render platform switcher for EDD Subscriptions tracking
+ *
+ * @param object $platform Platform object (Facebook(), GA(), Tiktok(), Pinterest())
+ */
+function renderEddSubscriptionsPlatformSwitcher( $platform ) {
+    renderPlatformSwitcher(
+            $platform,
+            'edd_track_subscriptions',
+            __( '%s track subscriptions', 'pys' ),
+            __( '%s API is required to track subscriptions.', 'pys' ),
+            isEddRecurringActive()
+    );
+}
+
+/**
+ * Render platform switcher for EDD Licenses tracking
+ *
+ * @param object $platform Platform object (Facebook(), GA(), Tiktok(), Pinterest())
+ */
+function renderEddLicensesPlatformSwitcher( $platform ) {
+    renderPlatformSwitcher(
+            $platform,
+            'edd_track_licenses',
+            __( '%s track licenses', 'pys' ),
+            __( '%s API is required to track licenses.', 'pys' ),
+            isEddSoftwareLicensingActive()
+    );
+}
+
+/**
+ * Render platform switcher for WooCommerce Subscriptions tracking
+ *
+ * @param object $platform Platform object (Facebook(), GA(), Tiktok(), Pinterest())
+ */
+function renderWooSubscriptionsPlatformSwitcher( $platform ) {
+    renderPlatformSwitcher(
+            $platform,
+            'woo_track_subscriptions',
+            __( '%s track subscriptions', 'pys' ),
+            __( '%s API is required to track subscriptions.', 'pys' ),
+            isWooCommerceSubscriptionsActive()
+    );
+}
+
+function render_info_message( $message ) {
+	?>
+    <div class="pys-info-message info-message-type2">
+        <div class="info-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M9.99998 14C9.58577 14 9.24999 13.6642 9.25 13.25L9.25006 9.74999C9.25007 9.33577 9.58586 8.99999 10.0001 9C10.4143 9.00001 10.7501 9.3358 10.7501 9.75001L10.75 13.25C10.75 13.6642 10.4142 14 9.99998 14Z"
+                      fill="#00527C"/>
+                <path d="M9 7C9 6.44772 9.44772 6 10 6C10.5523 6 11 6.44772 11 7C11 7.55228 10.5523 8 10 8C9.44772 8 9 7.55228 9 7Z"
+                      fill="#00527C"/>
+                <path fill-rule="evenodd" clip-rule="evenodd"
+                      d="M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10ZM15.5 10C15.5 13.0376 13.0376 15.5 10 15.5C6.96243 15.5 4.5 13.0376 4.5 10C4.5 6.96243 6.96243 4.5 10 4.5C13.0376 4.5 15.5 6.96243 15.5 10Z"
+                      fill="#00527C"/>
+            </svg>
+        </div>
+        <p class="message-content"> <?php echo wp_kses_post( $message ); ?></p>
+    </div>
+	<?php
 }

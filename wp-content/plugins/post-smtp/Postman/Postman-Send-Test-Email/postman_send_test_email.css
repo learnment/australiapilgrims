@@ -58,7 +58,7 @@
 	width: 48px;
 	height: 48px;
 	font-size: 44px;
-	color: #375caf;
+	color: #214A72;
 	position: relative;
 	z-index: 8;
 }
@@ -72,7 +72,7 @@
 	vertical-align: top;
 	line-height: 1;
 	margin: auto;
-	background-color: #375caf;
+	background-color: #214A72;
 }
 
 .send-test-email  .ps-circle .birth-check.ps-tick::before {
@@ -145,20 +145,20 @@
 }
 
 .send-test-email .ps-blue-button {
-	border: #485b87;
-	background: #375caf;
+	border: #214A72;
+	background: #214A72;
 	border-radius: 0px;
 	line-height: 40px;
 	width: 184px;
 }
 
 .send-test-email .ps-blue-button:hover {
-	background: #4c6fbd;
-	border-color: #4c6fbd;
+	background: #214A72;
+	border-color: #214A72;
 }
 
 .send-test-email .ps-blue-button span {
-	vertical-align: middle;
+	vertical-align: sub !important;
 	font-size: 16px;
 }
 
@@ -177,13 +177,42 @@
 }
 
 .need-more-line::after {
-	height: 491px !important;
+	height: 476px !important;
 }
 
 .ps-ste-clearfix::after {
 	clear: both;
 	display: table;
 	content: '';
+}
+
+.send-test-email .ps-form-ui label {
+	font-weight: 600;
+	color: #214A72;
+}
+
+.send-test-email .ps-form-ui input[type="text"] {
+	width: 100%;
+	max-width: 100%;
+	height: 37px;
+	margin-top: 5px;
+	display: block;
+	box-sizing: border-box;
+	border: 1px solid #DCDFE5;
+	background: #FDFDFE;
+	border-radius: 0;
+}
+
+.send-test-email .ps-form-control {
+	margin-bottom: 25px;
+}
+
+.send-test-email .ps-form-control-info {
+	display: block;
+	color: #979797;
+	font-size: 10px;
+	line-height: 1.4;
+	margin-top: 5px;
 }
 
 

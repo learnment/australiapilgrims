@@ -24,7 +24,59 @@ class FunctionsMigrate {
     {
         $this->pys_free_version = get_option( 'pys_core_free_version', false );
 
-        add_action('plugins_loaded', array($this,'maybeMigrate'), 1);
+        add_action('admin_init', array($this,'maybeMigrate'), 5);
+        // Runs on 'admin_init' (i.e. after 'init'), so every options group has
+        // already located its defaults by the time we re-save them.
+        add_action('admin_init', array($this,'maybeBackfillStoredOptions'), 20);
+    }
+
+    /**
+     * Options saved before a plugin update do not contain the keys that update
+     * introduced. Such keys resolve to null for any read that happens before the
+     * defaults are loaded, which silently disables the features behind them
+     * (external_id/pbid being the visible case). Re-save every options group once
+     * per version so the stored rows always hold the full key set.
+     */
+    public function maybeBackfillStoredOptions() {
+
+        if ( ( defined( 'DOING_AJAX' ) && DOING_AJAX ) || ( defined( 'DOING_CRON' ) && DOING_CRON ) ) {
+            return;
+        }
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+
+        // Never interfere with a settings save (adminProcessRequest, admin_init 11).
+        if ( ! empty( $_POST ) ) {
+            return;
+        }
+
+        if ( get_option( 'pys_free_options_backfilled_version' ) === PYS_FREE_VERSION ) {
+            return;
+        }
+
+        $groups = array_merge(
+            array( PYS() ),
+            array_values( PYS()->getRegisteredPixels() ),
+            array_values( PYS()->getRegisteredPlugins() )
+        );
+
+        foreach ( $groups as $group ) {
+
+            if ( ! $group instanceof Settings ) {
+                continue;
+            }
+
+            try {
+                $group->reloadOptions();        // stored values merged over the defaults
+                $group->updateOptions( array() ); // persist the merged set as is
+            } catch ( \Throwable $e ) {
+                error_log( 'PYS: options backfill failed for ' . $group->getSlug() . ': ' . $e->getMessage() );
+            }
+        }
+
+        update_option( 'pys_free_options_backfilled_version', PYS_FREE_VERSION, false );
     }
     public function maybeMigrate() {
 
@@ -39,6 +91,9 @@ class FunctionsMigrate {
         $pys_free_version = get_option( 'pys_core_free_version', false );
 
         $migrations = [
+            '11.4.4' => [ $this, 'migrate_11_4_4' ],
+            '11.4.3' => [ $this, 'migrate_11_4_3' ],
+            '11.4.2' => [ $this, 'migrate_11_4_2' ],
             '11.1.0' => [ $this, 'migrate_11_1_0' ],
             '10.1.1.1' => [ $this, 'migrate_10_1_1_1' ],
             '10.0.1' => [ $this, 'migrate_10_0_0' ],
@@ -66,6 +121,126 @@ class FunctionsMigrate {
             }
         }
     }
+    /**
+     * Raw stored core options, before defaults are merged over them.
+     *
+     * maybeLoad() merges the defaults into whatever is stored, so getOption()
+     * cannot tell "never saved" apart from "saved holding the default value".
+     * The data_persistency migration below needs exactly that distinction.
+     *
+     * @return array|null null when this install has never stored core options.
+     */
+    private function getStoredCoreOptions() {
+
+        global $wpdb;
+
+        $table = Settings::storage_table();
+
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table ) {
+
+            $row = $wpdb->get_row(
+                $wpdb->prepare( "SELECT option_value FROM $table WHERE option_name = %s LIMIT 1", 'pys_core' ),
+                ARRAY_A
+            );
+
+            if ( $row ) {
+                $val = maybe_unserialize( $row['option_value'] );
+                if ( is_array( $val ) ) {
+                    return $val;
+                }
+            }
+        }
+
+        $legacy = get_option( 'pys_core', null );
+
+        return is_array( $legacy ) ? $legacy : null;
+    }
+
+    /**
+     * "If a variation has no SKU of its own" (woo_content_id_variation_sku).
+     *
+     * The JSON default is `parent_sku`, which is exactly what every tag did
+     * before this option existed (WooCommerce's get_sku() inherits the parent
+     * SKU), so an existing install keeps its behaviour without any write.
+     * A fresh install gets `variation_id` on every tag that has the option.
+     * Fresh vs. existing is decided by the stored core options row, not by
+     * guessing from other settings.
+     */
+    protected function migrate_11_4_4() {
+
+        if ( null !== $this->getStoredCoreOptions() ) {
+            return; // existing install: keep the legacy default
+        }
+
+        $modules = array( Facebook(), GATags(), GTM(), OpenAI() );
+
+        foreach ( $modules as $module ) {
+            if ( method_exists( $module, 'issetOption' ) && $module->issetOption( WOO_CONTENT_ID_VARIATION_SKU_KEY ) ) {
+                $module->updateOptions( array( WOO_CONTENT_ID_VARIATION_SKU_KEY => 'variation_id' ) );
+            }
+        }
+    }
+
+    /**
+     * Seed the scoped permission options from the existing plugin access list.
+     * Reads raw stored options: backfilled defaults look like a deliberate choice.
+     */
+    protected function migrate_11_4_3() {
+
+        $stored = $this->getStoredCoreOptions();
+
+        // fresh install, defaults already apply
+        if ( null === $stored ) {
+            return;
+        }
+
+        $inherited = isset( $stored['admin_permissions'] ) && is_array( $stored['admin_permissions'] )
+            ? $stored['admin_permissions']
+            : array( 'administrator' );
+
+        $options = array();
+
+        foreach ( array( 'woo_edd_reports_permissions', 'woo_edd_export_permissions' ) as $permission_key ) {
+            // an existing value always wins
+            if ( ! isset( $stored[ $permission_key ] ) ) {
+                $options[ $permission_key ] = $inherited;
+            }
+        }
+
+        if ( empty( $options ) ) {
+            return;
+        }
+
+        PYS()->updateOptions( $options );
+    }
+
+    /**
+     * data_persistency now defaults to 'recent_data'.
+     *
+     * Under the old 'keep_data' default a stored value wins over a freshly
+     * entered one, so on a shared computer the first visitor's email keeps
+     * overriding every later buyer's, and that identity is what gets reported
+     * to the ad platforms. New installs get the safer default; an existing
+     * install keeps what it had, because flipping it silently would change the
+     * data that site already reports.
+     */
+    protected function migrate_11_4_2() {
+
+        $stored = $this->getStoredCoreOptions();
+
+        // Nothing stored means a fresh install: let it take the new default.
+        if ( null === $stored ) {
+            return;
+        }
+
+        // An existing choice - default or deliberate - is left untouched.
+        if ( ! empty( $stored['data_persistency'] ) ) {
+            return;
+        }
+
+        PYS()->updateOptions( array( 'data_persistency' => 'keep_data' ) );
+    }
+
     protected function migrate_unify_custom_events(){
         foreach (CustomEventFactory::get() as $event) {
             $event->migrateUnifyGA();

@@ -74,13 +74,20 @@ class GTM extends Settings implements Pixel {
     public function pys_wp_header_top( $echo = true ) {
 
         $has_html5_support    = current_theme_supports( 'html5' );
-        $gtm_dataLayer_name = $this->getOption( 'gtm_dataLayer_name' ) ?? 'dataLayer';
+        // Must match Utils.resolveGtmDataLayerName() in dist/scripts/public.js, or the
+        // consent default written below and the consent update sent from the footer end
+        // up in different data layers. `??` alone is not enough: the option can be saved
+        // as an empty string, and window[""] is a silent dead end.
+        $gtm_dataLayer_name = $this->getOption( 'gtm_dataLayer_name' );
+        if ( ! is_string( $gtm_dataLayer_name ) || $gtm_dataLayer_name === '' ) {
+            $gtm_dataLayer_name = 'dataLayer';
+        }
         // the data layer initialization has to use 'var' instead of 'let' since 'let' can break related browser extension and 3rd party script.
         $_gtm_top_content = '
 <!-- Google Tag Manager by PYS -->
 <script data-cfasync="false" data-pagespeed-no-defer' . ( $has_html5_support ? ' type="text/javascript"' : '' ) . '>
 	var pys_datalayer_name = "' . esc_js( $gtm_dataLayer_name ) . '";
-	window.' . esc_js( $gtm_dataLayer_name ) . ' = window.' . esc_js( $gtm_dataLayer_name ) . ' || [];';
+	window["' . esc_js( $gtm_dataLayer_name ) . '"] = window["' . esc_js( $gtm_dataLayer_name ) . '"] || [];';
 
         if($this->getOption( 'check_list') != 'disabled' && !empty($this->getOption( 'check_list_contain'))){
             $elementName = 'gtm.'.$this->getOption( 'check_list');
@@ -88,7 +95,137 @@ class GTM extends Settings implements Pixel {
             $element[$elementName] = array_values($this->getOption( 'check_list_contain'));
             $_gtm_top_content .= esc_js( $gtm_dataLayer_name ).'.push('.json_encode($element).');';
         }
-        $_gtm_top_content .= '</script> 
+
+        // Push the consent default early in <head> so any custom GTM snippet already
+        // finds it in the dataLayer before GTM initialises (fixes gcd=...l... issue
+        // and ensures gtm_just_data_layer mode works correctly with consent mode).
+        //
+        // The default below is deliberately strict — all signals denied, plus
+        // wait_for_update — and it is only half of the Consent Mode contract: the
+        // update that resolves it comes from Utils.pushGTMConsentState() in the
+        // footer. That half only ships when this pixel is configured(): outputData()
+        // skips getPixelOptions() otherwise, so options.gtm never reaches the page
+        // and no update can follow. Emitting a permanent denied in that case is worse
+        // than emitting nothing, so the whole consent block is gated on it too.
+        //
+        // configured() is evaluated here rather than at init, where the hook is
+        // registered: wp_head runs late enough for every pys_pixel_disabled filter
+        // to be in place.
+        $is_consent_mode = ( PYS()->getOption( 'google_consent_mode' )
+                || has_filter( 'cm_google_consent_mode' )
+                || has_filter( 'pys_analytics_storage_mode' )
+                || has_filter( 'pys_ad_storage_mode' )
+                || has_filter( 'pys_ad_user_data_mode' )
+                || has_filter( 'pys_ad_personalization_mode' ) )
+            && $this->configured();
+
+        if ( $is_consent_mode ) {
+            /**
+             * Signal that PixelYourSite is natively emitting the Google Consent
+             * Mode default command in its <head> bootstrap. Consent management
+             * plugins (e.g. Consent Magic) can check this filter and leave the
+             * PYS inline script alone: it must neither be parked (type="text/plain")
+             * nor have its consent command stripped, since defaults have to run
+             * before any tag loads.
+             *
+             * The snippet below deliberately contains no "gtag" identifier, so
+             * keyword-based blockers should not match it in the first place; this
+             * filter is the explicit belt-and-braces signal.
+             *
+             * Example (consumer side):
+             *
+             *     if ( apply_filters( 'pys_google_consent_mode_handled', false ) ) {
+             *         // PYS already pushed consent defaults itself.
+             *         // Skip cleanup of consent calls in PYS scripts.
+             *         return $script_content;
+             *     }
+             *
+             * @since 9.8.1
+             * @param bool $handled Whether PYS already emitted consent defaults.
+             */
+            add_filter( 'pys_google_consent_mode_handled', '__return_true' );
+
+            // Resolve initial default values using the same filter chain as class-events-manager.
+            // ConsentMagic and other integrations populate cm_google_consent_mode with
+            // denied/granted values based on stored cookies.
+            $consent_values = apply_filters( 'cm_google_consent_mode', array(
+                'analytics_storage'  => array( 'value' => 'denied' ),
+                'ad_storage'         => array( 'value' => 'denied' ),
+                'ad_user_data'       => array( 'value' => 'denied' ),
+                'ad_personalization' => array( 'value' => 'denied' ),
+            ) );
+
+            // Allow individual pys_*_mode filters to override values.
+            if ( has_filter( 'pys_analytics_storage_mode' ) ) {
+                $consent_values['analytics_storage']['value'] = apply_filters( 'pys_analytics_storage_mode', true ) ? 'granted' : 'denied';
+            }
+            if ( has_filter( 'pys_ad_storage_mode' ) ) {
+                $consent_values['ad_storage']['value'] = apply_filters( 'pys_ad_storage_mode', true ) ? 'granted' : 'denied';
+            }
+            if ( has_filter( 'pys_ad_user_data_mode' ) ) {
+                $consent_values['ad_user_data']['value'] = apply_filters( 'pys_ad_user_data_mode', true ) ? 'granted' : 'denied';
+            }
+            if ( has_filter( 'pys_ad_personalization_mode' ) ) {
+                $consent_values['ad_personalization']['value'] = apply_filters( 'pys_ad_personalization_mode', true ) ? 'granted' : 'denied';
+            }
+
+            $consent_default = array(
+                'analytics_storage'  => $consent_values['analytics_storage']['value'],
+                'ad_storage'         => $consent_values['ad_storage']['value'],
+                'ad_user_data'       => $consent_values['ad_user_data']['value'],
+                'ad_personalization' => $consent_values['ad_personalization']['value'],
+                // Holds tags until the consent state is known. What resolves it:
+                // Utils.pushGTMConsentState() (footer) when PYS owns consent, or the
+                // consent plugin's own update when one is installed.
+                'wait_for_update'    => 500,
+            );
+
+            // Emit the Consent Mode default() command WITHOUT using the identifier
+            // "gtag" anywhere in this snippet, and without touching window.gtag.
+            //
+            // 1. Consent management plugins detect analytics scripts by the bare
+            //    substring "gtag" in the inline body (Consent Magic:
+            //    CS_Script_Blocker js_needle). A snippet containing it gets parked
+            //    as type="text/plain" and its gtag('consent','default',{...}) call
+            //    gets regex-stripped, which used to leave the fragment "window.;"
+            //    -> SyntaxError when the parked script was re-injected on unblock.
+            //    Consent defaults must run immediately in <head>, never be parked.
+            //
+            // 2. Defining window.gtag here would pin it to the GTM data layer for
+            //    the whole page. Utils.loadGoogleTag() in public.js uses
+            //    `window.gtag = window.gtag || ...`, so it would keep that binding
+            //    and send every gtag('config'/'event') to the GTM data layer while
+            //    the gtag.js it loads listens on the GA data layer
+            //    (gtag/js?id=...&l=<ga_datalayer_name>). Tag Assistant then reports
+            //    "Some hits will only be sent after a config command is issued".
+            //
+            // Pushing the arguments object directly is exactly what gtag() does, so
+            // gtag.js / GTM read the command identically.
+            //
+            // 3. The command is emitted at most once per data layer. This script can
+            //    run twice: Consent Magic strips it from <head> and re-injects a clone
+            //    into <body> when it unblocks scripts, so without the guard the layer
+            //    ends up with two defaults — and if the re-injection lands after the
+            //    CMP's own update, the second one is a stale default overwriting a
+            //    live choice. The same guard also yields to a default already written
+            //    by anything else (Site Kit, a theme, another CMP), which is the rule
+            //    Consent Mode actually documents: one default per layer, then updates.
+            //    Utils.layerHasConsentDefault() in public.js applies it on the JS side.
+            //
+            // ES5 only — this runs inline in <head> before anything is loaded — and it
+            // must contain no "<" and no "&": this whole string is passed through
+            // wp_kses() below, which treats everything from a "<" to the next ">" as a
+            // tag, finds it disallowed and HTML-escapes the entire remainder of the
+            // script. Hence the countdown loop instead of `i<l.length` and the nested
+            // ifs instead of `&&`.
+            $_gtm_top_content .= '
+	(function(){var l=window["' . esc_js( $gtm_dataLayer_name ) . '"],i;
+	for(i=l.length;i--;){if(l[i]){if(l[i][0]==="consent"){if(l[i][1]==="default"){return;}}}}
+	var c=function(){l.push(arguments);};
+	c("consent","default",' . wp_json_encode( $consent_default ) . ');})();';
+        }
+
+        $_gtm_top_content .= '</script>
 <!-- End Google Tag Manager by PYS -->';
 
         if ( $echo ) {
@@ -202,7 +339,7 @@ class GTM extends Settings implements Pixel {
             case 'automatic_event_search' :{
                 $event->addPayload(["name" => "search"]);
                 $event->addParams([
-                    "search_term"       =>  empty( $_GET['s'] ) ? null : $_GET['s'],
+                    "search_term"       =>  empty( $_GET['s'] ) ? null : sanitize_text_field( wp_unslash( $_GET['s'] ) ),
                 ]);
                 $isActive = $this->getOption($event->getId().'_enabled');
             } break;
@@ -309,7 +446,7 @@ class GTM extends Settings implements Pixel {
             }break;
 
             case 'woo_add_to_cart_on_button_click': {
-                if (  $this->getOption( 'woo_add_to_cart_enabled' ) && PYS()->getOption( 'woo_add_to_cart_on_button_click' ) ) {
+                if ( PYS()->getOption( 'woo_add_to_cart_enabled' ) && $this->getOption( 'woo_add_to_cart_enabled' ) && PYS()->getOption( 'woo_add_to_cart_on_button_click' ) ) {
                     $isActive = true;
                     if(isset($event->args['productId'])) {
                         $eventData =  $this->getWooAddToCartOnButtonClickEventParams( $event );
@@ -362,13 +499,15 @@ class GTM extends Settings implements Pixel {
                     $args = array(
                         'v'    => 2,
                         'tid'  => $pixelID,
-                        'cid'  => isset($_COOKIE['_ga']) ? preg_replace('/GA\d+\.\d+\.(\d+\.\d+)/', '$1', $_COOKIE['_ga']) : time() . '.' . rand(100000, 999999), // Generate a random Client ID
+                        // Always a random Client ID, never the visitor's _ga cookie:
+                        // this markup can be stored in a page cache and served to everyone.
+                        'cid'  => time() . '.' . rand(100000, 999999),
                         'en'   => $event['name'], // The name of the event (eg view_item)
                         'ep.eventID'  => $event['eventID'],
                     );
 
-                    $args['dt'] = isset($event['params']['page_title']) ? urlencode($event['params']['page_title']) : '';
-                    $args['dl'] = isset($event['params']['event_url']) ? urlencode($event['params']['event_url']) : '';
+                    $args['dt'] = isset($event['params']['page_title']) ? $event['params']['page_title'] : '';
+                    $args['dl'] = isset($event['params']['event_url']) ? $event['params']['event_url'] : '';
                     // DYNAMICALLY LOOPING THROUGH ALL PARAMETERS EXCEPT "items"
                     foreach ($event['params'] as $key => $value) {
                         if ($key === 'items' || $key === 'page_title' || $key === 'event_url') {
@@ -380,17 +519,15 @@ class GTM extends Settings implements Pixel {
                     // Adding products
                     if (!empty($event['params']['items'])) {
                         foreach ($event['params']['items'] as $key => $item) {
-                            $args["pr" . ($key + 1) . "id"] = urlencode($item['item_id']);
-                            $args["pr" . ($key + 1) . "nm"] = urlencode($item['item_name']);
+                            $args["pr" . ($key + 1) . "id"] = $item['item_id'];
+                            $args["pr" . ($key + 1) . "nm"] = $item['item_name'];
                             $args["pr" . ($key + 1) . "pr"] = (float)$item['price'];
                             $args["pr" . ($key + 1) . "qt"] = (int)$item['quantity'];
-                            $args["pr" . ($key + 1) . "ca"] = urlencode($item['item_category']);
+                            $args["pr" . ($key + 1) . "ca"] = $item['item_category'];
                         }
                     }
 
-                    $src = add_query_arg( $args, 'https://www.google-analytics.com/collect' );
-                    $src = str_replace("[","%5B",$src);
-                    $src = str_replace("]","%5D",$src);
+                    $src = pys_noscript_pixel_src( 'https://www.google-analytics.com/collect', $args );
 
                     // ALT tag used to pass ADA compliance
                     printf( '<noscript><img height="1" width="1" style="display: none;" src="%s" alt="google_gtm"></noscript>',
@@ -697,7 +834,7 @@ class GTM extends Settings implements Pixel {
         $customProductPrice = -1;
 
         global $post;
-        $product = wc_get_product( $post->ID );
+        $product = pysWooGetProduct( $post->ID );
         if(!$product)  return false;
 
         $productId = Helpers\getWooProductContentId($product->get_id());
@@ -710,7 +847,7 @@ class GTM extends Settings implements Pixel {
             'price'    => getWooProductPriceToDisplay($product->get_id(), $quantity, $customProductPrice),
         );
 
-        $category = $this->getCategoryArrayWoo($productId);
+        $category = $this->getCategoryArrayWoo($product->get_id());
         if(!empty($category))
         {
             $general_item = array_merge($general_item, $category);
@@ -720,13 +857,22 @@ class GTM extends Settings implements Pixel {
 // Check if the product has variations
         if ($product->is_type('variable') && !GTM()->getOption( 'woo_variable_as_simple' )) {
 
-            $variations = $product->get_available_variations();
+            // The ids come from get_children(), not get_available_variations(): this loop
+            // reads nothing but the variation id out of that method's result, while the
+            // method itself builds every variation's prices, stock and attachment props
+            // and runs each one through the `woocommerce_available_variation` filter —
+            // where themes attach gallery data. pysWooVariationIsListable() is that
+            // method's own selection, so items[] holds what it held before — minus variations a
+            // plugin removed through the `woocommerce_available_variation` filter, which that
+            // build dropped and this walk cannot see.
+            $variation_ids = array_map('intval', (array) $product->get_children());
+            _prime_post_caches($variation_ids);
 
-            foreach ($variations as $variation) {
-                $variationProduct = wc_get_product($variation['variation_id']);
-                if($variationProduct) continue;
-                $variationProductId = Helpers\getWooProductContentId($variation['variation_id']);
-                $category = $this->getCategoryArrayWoo($variationProductId, true);
+            foreach ($variation_ids as $variation_id) {
+                $variationProduct = pysWooGetProduct($variation_id);
+                if(!pysWooVariationIsListable($variationProduct)) continue;
+                $variationProductId = Helpers\getWooProductContentId($variation_id);
+                $category = $this->getCategoryArrayWoo($variation_id, true);
 
                 $item = array(
                     'item_id'       => $variationProductId,
@@ -777,11 +923,11 @@ class GTM extends Settings implements Pixel {
         $items = array();
         $product_ids = array();
         $withTax = 'incl' === get_option( 'woocommerce_tax_display_cart' );
-        if(WC()->cart->get_cart())
+        if(isWooCartAvailable() && WC()->cart->get_cart())
         {
             foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
 
-                $product = wc_get_product(!empty($cart_item['variation_id'] && !GTM()->getOption('woo_variable_as_simple')) ? $cart_item['variation_id'] : $cart_item['product_id']);
+                $product = pysWooGetProduct(!empty($cart_item['variation_id'] && !GTM()->getOption('woo_variable_as_simple')) ? $cart_item['variation_id'] : $cart_item['product_id']);
 
                 if ($product) {
 
@@ -832,9 +978,12 @@ class GTM extends Settings implements Pixel {
         }
         $customProductPrice = -1;
         $product_id = $args->args['productId'];
+        // Price lookup id: the selected variation, so "treat variable as simple" keeps the parent
+        // as item_id but the price is the one the customer actually chose (not the cheapest variation).
+        $price_id = !empty($args->args['priceId']) ? $args->args['priceId'] : $product_id;
         $quantity = $args->args['quantity'];
 
-        $product = wc_get_product( $product_id );
+        $product = pysWooGetProduct( $product_id );
         if(!$product) return false;
 
         $product_ids = array();
@@ -848,12 +997,12 @@ class GTM extends Settings implements Pixel {
         }
 
         foreach ($product_ids as $child_id) {
-            $childProduct = wc_get_product($child_id);
-            if($childProduct || ($childProduct->get_type() == "variable" && $isGrouped)) {
+            $childProduct = pysWooGetProduct($child_id);
+            if(!$childProduct || ($childProduct->get_type() == "variable" && $isGrouped)) {
                 continue;
             }
             $content_id = Helpers\getWooProductContentId($child_id);
-            $price = getWooProductPriceToDisplay( $child_id, $quantity );
+            $price = getWooProductPriceToDisplay( $child_id == $product_id ? $price_id : $child_id, $quantity );
             $name = GTM()->getOption('woo_variations_use_parent_name') && $childProduct->is_type('variation') ? $childProduct->get_title() : $childProduct->get_name();
 
 
@@ -890,7 +1039,7 @@ class GTM extends Settings implements Pixel {
             $value_option = PYS()->getOption( 'woo_add_to_cart_value_option' );
             $global_value = PYS()->getOption( 'woo_add_to_cart_value_global', 0 );
 
-            $params['value']    = getWooEventValue( $value_option, $global_value,100, $product_id,$quantity );
+            $params['value']    = getWooEventValue( $value_option, $global_value,100, $price_id,$quantity );
         }
 
         $data = array(
@@ -914,7 +1063,7 @@ class GTM extends Settings implements Pixel {
 
     private function getWooAddToCartOnCartEventParams() {
 
-        if ( ! $this->getOption( 'woo_add_to_cart_enabled' ) ) {
+        if ( ! $this->getOption( 'woo_add_to_cart_enabled' ) || ! isWooCartAvailable() ) {
             return false;
         }
 
@@ -939,14 +1088,14 @@ class GTM extends Settings implements Pixel {
         $cart_item = $event->args['item'];
         $product_id = $cart_item['product_id'];
 
-        $product = wc_get_product( $product_id );
+        $product = pysWooGetProduct( $product_id );
         if(!$product) return false;
 
         $name = $product->get_title();
 
 
         if ( ! empty( $cart_item['variation_id'] ) ) {
-            $variation = wc_get_product( $cart_item['variation_id'] );
+            $variation = pysWooGetProduct( $cart_item['variation_id'] );
             if($variation && $variation->get_type() == 'variation'  && !GTM()->getOption( 'woo_variable_as_simple' )) {
                 $variation_name = !GTM()->getOption('woo_variations_use_parent_name') ? implode("/", $variation->get_variation_attributes()) : $product->get_title();
                 $categories = $this->getCategoryArrayWoo($product_id, true);
@@ -959,6 +1108,13 @@ class GTM extends Settings implements Pixel {
             $categories = $this->getCategoryArrayWoo($product_id);
         }
 
+        // Price from the cart line (the selected variation and its discounts), not the catalog.
+        $line_price = isset( $cart_item['line_subtotal'] ) ? $cart_item['line_subtotal'] : 0;
+        if ( 'incl' === get_option( 'woocommerce_tax_display_cart' ) ) {
+            $line_price += isset( $cart_item['line_subtotal_tax'] ) ? $cart_item['line_subtotal_tax'] : 0;
+        }
+        $unit_price = $cart_item['quantity'] > 0 ? pys_round( $line_price / $cart_item['quantity'] ) : pys_round( $line_price );
+
         $data = [
             'name' => "remove_from_cart"
         ];
@@ -967,10 +1123,10 @@ class GTM extends Settings implements Pixel {
             'currency'        => get_woocommerce_currency(),
             'items'           => array(
                 array(
-                    'item_id'       => $product_id,
+                    'item_id'       => Helpers\getWooProductContentId( Helpers\getWooCartItemId( $cart_item ) ),
                     'item_name'     => $name,
                     'quantity' => $cart_item['quantity'],
-                    'price'    => getWooProductPriceToDisplay( $product_id, $cart_item['quantity'] ),
+                    'price'    => $unit_price,
                     'variant'  => $variation_name,
                 ),
             )];
@@ -988,7 +1144,7 @@ class GTM extends Settings implements Pixel {
 
     private function getWooInitiateCheckoutEventParams() {
 
-        if ( ! $this->getOption( 'woo_initiate_checkout_enabled' ) ) {
+        if ( ! $this->getOption( 'woo_initiate_checkout_enabled' ) || ! isWooCartAvailable() ) {
             return false;
         }
 
@@ -1002,24 +1158,12 @@ class GTM extends Settings implements Pixel {
     }
 
     private function getWooPurchaseEventParams() {
-        global $wp;
         if ( ! $this->getOption( 'woo_purchase_enabled' ) ) {
             return false;
         }
-        $key = sanitize_key($_REQUEST['key']);
-        $cache_key = 'order_id_' . $key;
-        $order_id = get_transient( $cache_key );
-        if (PYS()->woo_is_order_received_page() && empty($order_id) && $wp->query_vars['order-received']) {
 
-            $order_id = absint( $wp->query_vars['order-received'] );
-            if ($order_id) {
-                set_transient( $cache_key, $order_id, HOUR_IN_SECONDS );
-            }
-        }
-        if ( empty($order_id) ) {
-            $order_id = (int) wc_get_order_id_by_order_key( $key );
-            set_transient( $cache_key, $order_id, HOUR_IN_SECONDS );
-        }
+        $order_id = wooGetOrderIdFromRequest();
+        if ( $order_id < 1 ) return false;
 
         $order    = wc_get_order( $order_id );
         if(!$order) return false;
@@ -1032,9 +1176,9 @@ class GTM extends Settings implements Pixel {
             $product_id = Helpers\getWooCartItemId( $line_item );
             $content_id = Helpers\getWooProductContentId( $product_id );
 
-            $product = wc_get_product( $product_id );
+            $product = pysWooGetProduct( $product_id );
             if ($product && GTM()->getOption('woo_variable_as_simple') && $product->is_type('variation')) {
-                $product = wc_get_product($product->get_parent_id());
+                $product = pysWooGetProduct($product->get_parent_id());
             }
             if(!$product) continue;
             $name = GTM()->getOption('woo_variations_use_parent_name') && $product->is_type('variation') ? $product->get_title() : $product->get_name();
@@ -1042,7 +1186,7 @@ class GTM extends Settings implements Pixel {
 
 
             if ( $line_item['variation_id'] ) {
-                $variation = wc_get_product( $line_item['variation_id'] );
+                $variation = pysWooGetProduct( $line_item['variation_id'] );
                 if($variation && $variation->get_type() == 'variation' && !GTM()->getOption( 'woo_variable_as_simple' )) {
 
                     $variation_name = !GTM()->getOption('woo_variations_use_parent_name') ? implode("/", $variation->get_variation_attributes()) : $product->get_title();
@@ -1139,6 +1283,11 @@ class GTM extends Settings implements Pixel {
 
     private function getWooCartParams($context = 'cart') {
 
+        // cart may be not initialized on this request
+        if ( ! isWooCartAvailable() ) {
+            return array();
+        }
+
         $items = array();
         $product_ids = array();
         $total_value = 0;
@@ -1148,14 +1297,14 @@ class GTM extends Settings implements Pixel {
             $product_id = Helpers\getWooCartItemId( $cart_item );
             $content_id = Helpers\getWooProductContentId( $product_id );
 
-            $product = wc_get_product( $product_id );
+            $product = pysWooGetProduct( $product_id );
             if(!$product) continue;
 
             $name = GTM()->getOption('woo_variations_use_parent_name') && $product->is_type('variation') ? $product->get_title() : $product->get_name();
 
 
             if ( $cart_item['variation_id'] ) {
-                $variation = wc_get_product( $cart_item['variation_id'] );
+                $variation = pysWooGetProduct( $cart_item['variation_id'] );
                 if($variation && $variation->get_type() == 'variation' && !GTM()->getOption( 'woo_variable_as_simple' )) {
                     $variation_name = !GTM()->getOption('woo_variations_use_parent_name') ? implode("/", $variation->get_variation_attributes()) : $product->get_title();
                     $categories = $this->getCategoryArrayWoo($product_id, true);
@@ -1170,11 +1319,19 @@ class GTM extends Settings implements Pixel {
                 $categories = $this->getCategoryArrayWoo($product_id);
             }
 
+            // Price from the cart line (the selected variation and its discounts), not the catalog,
+            // so "treat variable as simple" no longer reports the cheapest variation of the parent.
+            $line_price = $cart_item['line_subtotal'];
+            if ( 'incl' === get_option( 'woocommerce_tax_display_cart' ) ) {
+                $line_price += $cart_item['line_subtotal_tax'];
+            }
+            $unit_price = $cart_item['quantity'] > 0 ? pys_round( $line_price / $cart_item['quantity'] ) : pys_round( $line_price );
+
             $item = array(
                 'item_id'       => $content_id,
                 'item_name'     => $name,
                 'quantity' => $cart_item['quantity'],
-                'price'    => getWooProductPriceToDisplay( $product_id ),
+                'price'    => $unit_price,
                 'variant'  => $variation_name,
             );
 
@@ -1210,7 +1367,7 @@ class GTM extends Settings implements Pixel {
             $value_option = PYS()->getOption( $value_option_option );
             $global_value = PYS()->getOption( $value_global_option, 0 );
 
-            $params['value']    = getWooEventValueCart( $value_option, $global_value );
+            $params['value']    = getWooEventValueCart( $value_option, $global_value, 100, $context == 'InitiateCheckout' );
 
         }
 
@@ -1270,7 +1427,7 @@ class GTM extends Settings implements Pixel {
             'currency' => edd_get_currency(),
             'items'           => array(
                 array(
-                    'item_id'       => Helpers\getEddDownloadContentId($download_id),
+                    'item_id'       => Helpers\getEddDownloadContentId($download_id, $price_index),
                     'item_name'     => $download_post->post_title,
                     'category' => implode( '/', getObjectTerms( 'download_category', $download_id ) ),
                     'quantity' => 1,
@@ -1344,6 +1501,9 @@ class GTM extends Settings implements Pixel {
                 $price_index = null;
             }
 
+            // Normalized price id for the content id: keep 0 (first variation), null only when there is no price option.
+            $content_price_id = isset( $item_options['price_id'] ) && $item_options['price_id'] !== '' ? $item_options['price_id'] : null;
+
             /**
              * Price as is used for all events except Purchase to avoid wrong values in Product Performance report.
              */
@@ -1364,7 +1524,7 @@ class GTM extends Settings implements Pixel {
             }
 
             $item = array(
-                'item_id'       => Helpers\getEddDownloadContentId($download_id),
+                'item_id'       => Helpers\getEddDownloadContentId($download_id, $content_price_id),
                 'item_name'     => $download_post->post_title,
                 'category' => implode( '/', getObjectTerms( 'download_category', $download_id ) ),
                 'quantity' => $cart_item['quantity'],
@@ -1396,7 +1556,7 @@ class GTM extends Settings implements Pixel {
         }
 
         if ( $value_enabled ) {
-            $amount = edd_get_payment_amount( $payment_id );
+            $amount = $context == 'purchase' ? edd_get_payment_amount( $payment_id ) : $total_value;
             $params['value']    = getEddEventValue( $value_option, $amount, $global_value );
         }
 
@@ -1418,6 +1578,9 @@ class GTM extends Settings implements Pixel {
 
         $price_index = ! empty( $cart_item['options'] ) ? $cart_item['options']['price_id'] : null;
 
+        // Normalized price id for the content id: keep 0 (first variation), null only when there is no price option.
+        $content_price_id = isset( $cart_item['options']['price_id'] ) && $cart_item['options']['price_id'] !== '' ? $cart_item['options']['price_id'] : null;
+
         return array(
             'name' => 'remove_from_cart',
             'data' => array(
@@ -1425,7 +1588,7 @@ class GTM extends Settings implements Pixel {
                 'currency'        => edd_get_currency(),
                 'items'           => array(
                     array(
-                        'item_id'       => Helpers\getEddDownloadContentId($download_id),
+                        'item_id'       => Helpers\getEddDownloadContentId($download_id, $content_price_id),
                         'item_name'     => $download_post->post_title,
                         'category' => implode( '/', getObjectTerms( 'download_category', $download_id ) ),
                         'quantity' => $cart_item['quantity'],

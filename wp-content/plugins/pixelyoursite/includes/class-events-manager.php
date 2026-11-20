@@ -10,6 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class EventsManager {
     private static $_instance;
     public $facebookServerEvents = array();
+    public $openaiServerEvents = array();
     private $pinterestServerEvents = array();
 	public $doingAMP = false;
     private $standardParams = array();
@@ -23,7 +24,9 @@ class EventsManager {
 
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueueScripts' ),10 );
         add_action( 'wp_enqueue_scripts', array( $this, 'setupEventsParams' ),14 );
+        $this->setupEddButtonHooks();
         add_action( 'wp_enqueue_scripts', array( $this, 'outputData' ),15 );
+        add_action( 'wp_head', array( $this, 'outputPbidPrefetch' ), 1 );
 		add_action( 'wp_footer', array( $this, 'outputNoScriptData' ), 10 );
 
         // Classic hook for checkout page
@@ -41,37 +44,109 @@ class EventsManager {
 
     }
     function add_data_attribute_to_script( $tag, $handle, $src ) {
-        $array_scripts = array('js-cookie-pys', 'jquery-bind-first', 'js-tld', 'pys');
-        if ( 'js-cookie-pys' === $handle && isCookiebotPluginActivated()) {
-            $tag = str_replace( 'src=', 'data-cookieconsent="true" src=', $tag );
+        $array_scripts = array('js-cookie-pys', 'jquery-bind-first', 'pys', 'js-sha256');
+
+        // Add defer attribute to all plugin scripts for better performance
+        $defer_scripts = array(
+                'jquery-bind-first',
+                'js-cookie-pys',
+                'js-sha256',
+                'pys',
+                'vimeo',
+                'pys-pinterest',
+                'pys-bing',
+                'pys_sp_public_js',
+                'pys-reddit'
+        );
+
+        if ( in_array( $handle, $defer_scripts, true ) ) {
+            // Add defer attribute if not already present
+            if ( strpos( $tag, 'defer' ) === false && strpos( $tag, 'async' ) === false ) {
+                $tag = str_replace( ' src=', ' defer src=', $tag );
+            }
+        }
+
+        // js.cookie is a helper library that writes nothing by itself (PYS gates
+        // every cookie write by consent). Cookiebot's Automatic Blocking would
+        // block it before consent otherwise, and public.js then fails at load.
+        // The attribute is inert on sites without Cookiebot.
+        if ( 'js-cookie-pys' === $handle ) {
+            $tag = str_replace( 'src=', 'data-cookieconsent="ignore" src=', $tag );
         }
         return $tag;
     }
 	public function enqueueScripts() {
 
-        wp_register_script( 'jquery-bind-first', PYS_FREE_URL . '/dist/scripts/jquery.bind-first-0.2.3.min.js', array( 'jquery' ) );
+        // Register core scripts (all in footer for better performance)
+        wp_register_script( 'jquery-bind-first', PYS_FREE_URL . '/dist/scripts/jquery.bind-first-0.2.3.min.js', array( 'jquery' ), '0.2.3', true);
+
+        wp_register_script( 'js-cookie-pys', PYS_FREE_URL . '/dist/scripts/js.cookie-2.1.3.min.js', array(), '2.1.3', true );
+        wp_register_script( 'js-sha256', PYS_FREE_URL . '/dist/scripts/sha256.js', array(), '0.11.0', true );
+        // tld.min.js is gone. Its bundled Public Suffix List predated ~2018 and
+        // returned the suffix itself for newer entries (app.vercel.app ->
+        // "vercel.app"), so cookies scoped with it were dropped by the browser.
+        // probeCookieDomain() in dist/scripts/public.js asks the browser
+        // instead, which cannot go stale. Also 141 KB off every page load.
+
+        // Enqueue core scripts
         wp_enqueue_script( 'jquery-bind-first' );
-
-        wp_register_script( 'js-cookie-pys', PYS_FREE_URL . '/dist/scripts/js.cookie-2.1.3.min.js', array(), '2.1.3' );
-        wp_register_script( 'js-tld', PYS_FREE_URL . '/dist/scripts/tld.min.js', array( 'jquery' ), '2.3.1' );
-
         wp_enqueue_script( 'js-cookie-pys' );
-        wp_enqueue_script( 'js-tld' );
+        wp_enqueue_script( 'js-sha256' );
 
+        // Load main plugin script (compressed or uncompressed)
         if ( PYS()->getOption( 'compress_front_js' )){
             wp_enqueue_script( 'pys', PYS_FREE_URL . '/dist/scripts/public.min.js',
-                array( 'jquery','js-cookie-pys', 'jquery-bind-first','js-tld' ), PYS_FREE_VERSION );
+                array( 'jquery', 'js-sha256', 'js-cookie-pys', 'jquery-bind-first' ), PYS_FREE_VERSION, true );
         }
         else
         {
             wp_enqueue_script( 'pys', PYS_FREE_URL . '/dist/scripts/public.js',
-                array( 'jquery','js-cookie-pys', 'jquery-bind-first','js-tld' ), PYS_FREE_VERSION );
+                array( 'jquery', 'js-sha256', 'js-cookie-pys', 'jquery-bind-first' ), PYS_FREE_VERSION, true );
         }
 
 
 	}
 
+	/**
+	 * Start the pys_get_pbid request from <head>, before public.js is even
+	 * downloaded.
+	 *
+	 * On a first visit the Meta pixel holds its init for that reply
+	 * (Utils.holdForIdentity(), ceiling PBID_WAIT_MS). public.js is a footer
+	 * script, so a request started there leaves the whole page download inside
+	 * the wait, and on a slow host the pixel falls back to the inline value —
+	 * on a cached page, somebody else's. Utils.requestPbid() picks up
+	 * window.pysPbidPrefetch and makes its own request only when the prefetch is
+	 * missing or failed.
+	 *
+	 * Printed regardless of the cookie: the page may come from a cache generated
+	 * by a cookie-holding visitor, so the cookie check lives in the snippet.
+	 *
+	 * Inline-script rules: no `<`/`&`, and no "fbq"/"pysOptions" substrings,
+	 * which Consent Magic's script blocker parks.
+	 */
+	public function outputPbidPrefetch() {
+
+		if ( ! self::isTrackExternalId() || ! Facebook()->enabled() ) {
+			return;
+		}
+
+		$url = add_query_arg( 'action', 'pys_get_pbid', admin_url( 'admin-ajax.php' ) );
+
+		echo '<script id="pys-pbid-prefetch">(function(){'
+			. 'if(!window.fetch){return;}'
+			. 'if(/(^|;\s*)pbid=/.test(document.cookie)){return;}'
+			. 'try{window.pysPbidPrefetch=window.fetch(' . wp_json_encode( $url ) . ',{credentials:"same-origin"})'
+			. '.then(function(r){return r.json();});}catch(e){}'
+			. '})();</script>' . "\r\n";
+	}
+
 	public function outputData() {
+
+		// Everything below ends up inside the page HTML, which a full-page
+		// cache may serve to other visitors. Visitor-specific reads are gated
+		// on this for the duration.
+		$previous_render_context = pys_html_render_context( true );
 
 		$data = array(
             'staticEvents'          => $this->staticEvents,
@@ -102,6 +177,9 @@ class EventsManager {
 			'ajax_event'                       => wp_create_nonce( 'ajax-event-nonce' ),
 			'enable_remove_download_url_param' => PYS()->getOption( 'enable_remove_download_url_param' ),
 			'cookie_duration'                  => PYS()->getOption( 'cookie_duration' ),
+			// Meta's cookies do not follow cookie_duration; see
+			// pys_fb_cookie_lifetime() in includes/functions-fb-cookies.php.
+			'fb_cookie_duration'               => pys_fb_cookie_lifetime() / DAY_IN_SECONDS,
 			'last_visit_duration'              => PYS()->getOption( 'last_visit_duration' ),
 			'enable_success_send_form'         => PYS()->getOption( 'enable_success_send_form' ),
 			'ajaxForServerEvent'               => PYS()->getOption( 'server_event_use_ajax' ),
@@ -110,7 +188,13 @@ class EventsManager {
 			"send_external_id"                 => PYS()->getOption( 'send_external_id' ),
 			"external_id_expire"               => PYS()->getOption( 'external_id_expire' ),
             "track_cookie_for_subdomains"      => PYS()->getOption( 'track_cookie_for_subdomains' ),
-			"google_consent_mode"              => $google_consent_mode
+			"google_consent_mode"              => $google_consent_mode,
+			// A consent management plugin populates cm_google_consent_mode and issues
+			// its own Consent Mode update from the visitor's live choice. Utils
+			// .pushGTMConsentState() checks this and stays out of the way: our update
+			// would carry the state as of page render and could overwrite theirs.
+			"consent_mode_cmp_active"          => has_filter( 'cm_google_consent_mode' ),
+			'data_persistency'                  => PYS()->getOption( 'data_persistency' )
 		);
 
 		$options[ 'gdpr' ] = array(
@@ -121,6 +205,8 @@ class EventsManager {
 			'google_ads_disabled_by_api' => apply_filters( 'pys_disable_google_ads_by_gdpr', false ),
 			'pinterest_disabled_by_api'  => apply_filters( 'pys_disable_pinterest_by_gdpr', false ),
 			'bing_disabled_by_api'       => apply_filters( 'pys_disable_bing_by_gdpr', false ),
+			'reddit_disabled_by_api'     => apply_filters( 'pys_disable_reddit_by_gdpr', false ),
+			'openai_disabled_by_api'     => apply_filters( 'pys_disable_openai_by_gdpr', false ),
 
 			'externalID_disabled_by_api' => apply_filters( 'pys_disable_externalID_by_gdpr', false ),
 
@@ -129,6 +215,7 @@ class EventsManager {
 			'google_ads_prior_consent_enabled' => PYS()->getOption( 'gdpr_google_ads_prior_consent_enabled' ),
 			'pinterest_prior_consent_enabled'  => PYS()->getOption( 'gdpr_pinterest_prior_consent_enabled' ),
 			'bing_prior_consent_enabled'       => PYS()->getOption( 'gdpr_bing_prior_consent_enabled' ),
+			'openai_prior_consent_enabled'     => PYS()->getOption( 'gdpr_openai_prior_consent_enabled' ),
 
 
 			'cookiebot_integration_enabled'          => isCookiebotPluginActivated() && PYS()->getOption( 'gdpr_cookiebot_integration_enabled' ),
@@ -138,6 +225,7 @@ class EventsManager {
 			'cookiebot_google_ads_consent_category'  => PYS()->getOption( 'gdpr_cookiebot_google_ads_consent_category' ),
 			'cookiebot_pinterest_consent_category'   => PYS()->getOption( 'gdpr_cookiebot_pinterest_consent_category' ),
 			'cookiebot_bing_consent_category'        => PYS()->getOption( 'gdpr_cookiebot_bing_consent_category' ),
+			'cookiebot_openai_consent_category'      => PYS()->getOption( 'gdpr_cookiebot_openai_consent_category' ),
 			'consent_magic_integration_enabled'      => isConsentMagicPluginActivated() && PYS()->getOption( 'consent_magic_integration_enabled' ),
 			'real_cookie_banner_integration_enabled' => isRealCookieBannerPluginActivated() && PYS()->getOption( 'gdpr_real_cookie_banner_integration_enabled' ),
 			'cookie_notice_integration_enabled'      => isCookieNoticePluginActivated() && PYS()->getOption( 'gdpr_cookie_notice_integration_enabled' ),
@@ -175,7 +263,7 @@ class EventsManager {
 		$options[ 'cookie' ] = array(
 			'disabled_all_cookie'                => apply_filters( 'pys_disable_all_cookie', false ),
 			'disabled_start_session_cookie'      => apply_filters( 'pys_disabled_start_session_cookie', false ),
-			'disabled_advanced_form_data_cookie' => apply_filters( 'pys_disable_advanced_form_data_cookie', false ) || apply_filters( 'pys_disable_advance_data_cookie', false ),
+			'disabled_advanced_form_data_cookie' => pys_advanced_form_data_cookie_disabled(),
 			'disabled_landing_page_cookie'       => apply_filters( 'pys_disable_landing_page_cookie', false ),
 			'disabled_first_visit_cookie'        => apply_filters( 'pys_disable_first_visit_cookie', false ),
 			'disabled_trafficsource_cookie'      => apply_filters( 'pys_disable_trafficsource_cookie', false ),
@@ -183,11 +271,34 @@ class EventsManager {
 			'disabled_utmId_cookie'              => apply_filters( 'pys_disable_utmId_cookie', false ),
 		);
 
+		/*
+		 * Deliberately empty of landing page, traffic source and UTMs.
+		 *
+		 * This array is printed into the page HTML, and a full-page cache stores
+		 * that HTML once and serves it to everybody: whichever visitor happened to
+		 * generate the cache entry would hand their own landing page and campaign
+		 * parameters to every later visitor of that page. The front end derives all
+		 * three on its own — from its own cookies, falling back to the current URL —
+		 * so nothing is lost by leaving them out. See getLandingPageValue() and
+		 * getUTMs() in dist/scripts/public.js.
+		 *
+		 * The session copies written by PYS::populateSessionVisitData() stay: the
+		 * server-side (CAPI) events read them, and those run per request and are
+		 * never served from a page cache.
+		 *
+		 * The keys are emptied, never removed. A visitor can be running an older
+		 * public.js than the HTML it receives — from their own browser cache while
+		 * ?ver= is unchanged, or from a cache plugin's minified copy, which is not
+		 * rebuilt when this file changes. That older script does
+		 * options.tracking_analytics.TrafficUtmsId[ name ] with no guard on the inner
+		 * object, so a missing key is a TypeError that takes pysNormalInit() down and
+		 * with it every event on the page. An empty array reads as "nothing here" and
+		 * costs nothing.
+		 */
 		$options[ 'tracking_analytics' ] = array(
-			"TrafficSource"  => getTrafficSource(),
-			"TrafficLanding" => $_COOKIE[ 'pys_landing_page' ] ?? $_SESSION[ 'LandingPage' ] ?? 'undefined',
-			"TrafficUtms"    => getUtms(),
-			"TrafficUtmsId"  => getUtmsId(),
+			"TrafficLanding" => '',
+			"TrafficUtms"    => array(),
+			"TrafficUtmsId"  => array(),
 		);
 
         $options['GATags']["ga_datalayer_type"] = GATags()->getOption('gtag_datalayer_type');
@@ -204,21 +315,93 @@ class EventsManager {
         }
         $options['cache_bypass'] = time();
 
+        if ( PYS()->getOption( 'fetch_user_data_via_rest' ) ) {
+            unset( $options['ajax_event'] );
+            unset( $options['cache_bypass'] );
+            // tracking_analytics is deliberately left in place. It holds no visitor
+            // data any more (see outputData() above), and the front end reads its
+            // inner keys unguarded — removing the array turns an unreachable
+            // dynamic-options endpoint into a TypeError that kills every event.
+            unset( $options['gdpr']['all_disabled_by_api'] );
+            unset( $options['gdpr']['facebook_disabled_by_api'] );
+            unset( $options['gdpr']['analytics_disabled_by_api'] );
+            unset( $options['gdpr']['google_ads_disabled_by_api'] );
+            unset( $options['gdpr']['pinterest_disabled_by_api'] );
+            unset( $options['gdpr']['bing_disabled_by_api'] );
+            unset( $options['gdpr']['reddit_disabled_by_api'] );
+            unset( $options['gdpr']['openai_disabled_by_api'] );
+            unset( $options['gdpr']['externalID_disabled_by_api'] );
+            unset( $options['cookie'] );
+            $options['dynamicDataUrl'] = rest_url( 'pys/v1/dynamic-options' );
+
+            /*
+             * Strip per-pixel user data (advanced matching) out of the HTML. The
+             * endpoint above returns it per visitor instead — see
+             * PYS::serve_dynamic_options().
+             *
+             * Note these keys live in $data, filled by the pixel loop at the top of
+             * this method, not in the $options array the rest of this block edits.
+             * The two are merged only afterwards.
+             *
+             * Purchase confirmation pages are left untouched: their data is
+             * order-derived and cannot be rebuilt on a REST request, and those pages
+             * are never HTML-cached. See isPurchaseConfirmationPage().
+             */
+            if ( ! isPurchaseConfirmationPage() ) {
+                foreach ( getDynamicUserDataKeys() as $slug => $keys ) {
+                    foreach ( $keys as $key ) {
+                        if ( isset( $data[ $slug ][ $key ] ) ) {
+                            // Emptied, not removed: the front-end reads
+                            // Object.keys( options.<slug>.<key> ).length and would
+                            // throw on undefined. An empty value is a state that
+                            // already occurs whenever there is nothing to match on.
+                            $data[ $slug ][ $key ] = array();
+                        }
+                    }
+                }
+            }
+        }
+
         $data = array_merge( $data, $options );
 
 		wp_localize_script( 'pys', 'pysOptions', $data );
 
+		pys_html_render_context( $previous_render_context );
+
 	}
-	
+
 	public function outputNoScriptData() {
         if(!apply_filters( 'pys_disable_by_gdpr', false)) {
             foreach (PYS()->getRegisteredPixels() as $pixel) {
                 /** @var Pixel|Settings $pixel */
-                if (!apply_filters('pys_disable_' . $pixel->getSlug() . '_by_gdpr', false)) {
+                if ($this->noScriptAllowed($pixel->getSlug())) {
                     $pixel->outputNoScriptEvents();
                 }
             }
         }
+    }
+
+    /**
+     * A no-script tag is a plain image request: it carries no Consent Mode
+     * state, so for the Google pixels restricted mode is no licence to send it.
+     * GA and GTM also obey the shared pys_disable_analytics_by_gdpr filter,
+     * which stops them everywhere else; pys_disable_{ga|gtm}_by_gdpr only
+     * reach the no-script tags.
+     *
+     * @param string $slug Pixel slug
+     * @return bool
+     */
+    private function noScriptAllowed( $slug ) {
+        $disabled = (bool) apply_filters( 'pys_disable_' . $slug . '_by_gdpr', false );
+        if ( in_array( $slug, array( 'ga', 'gtm' ), true ) ) {
+            $disabled = $disabled || apply_filters( 'pys_disable_analytics_by_gdpr', false );
+        }
+        if ( ! $disabled ) {
+            return true;
+        }
+
+        return ! in_array( $slug, array( 'ga', 'gtm', 'google_ads' ), true )
+            && Consent()->firesInRestrictedMode( $slug );
     }
 
 
@@ -230,6 +413,7 @@ class EventsManager {
 
         $this->standardParams = getStandardParams();
         $this->facebookServerEvents = array();
+        $this->openaiServerEvents = array();
 
 
         /**
@@ -245,29 +429,27 @@ class EventsManager {
 
 		// initial event
 		$initEvent = new SingleEvent('init_event',EventTypes::$STATIC,'');
-		if(get_post_type() == "post" && !is_archive()) {
-			global $post;
-			$catIds = wp_get_object_terms( $post->ID, 'category', array( 'fields' => 'names' ) );
-			$initEvent->addParams([
-				'post_category' => implode(", ",$catIds)
-			]);
-		}
 
 		foreach ( PYS()->getRegisteredPixels() as $pixel ) {
 
 			$events = $pixel->generateEvents( $initEvent );
 			foreach ($events as $event) {
-				$event->addParams($this->standardParams);
+				$params = array();
+				if( get_post_type() == "post" && !is_archive() ) {
+					global $post;
+					$params[ 'post_category' ] = implode( ', ', getObjectTerms( 'category', $post->ID ) );
+				}
+
+				$slug = $pixel->getSlug();
+				if( $slug !== "reddit" ) {
+					$event->addParams( $params );
+					$event->addParams( $this->standardParams );
+				}
 				$this->addStaticEvent( $event,$pixel,"" );
 			}
 		}
 
-        if(EventsEdd()->isEnabled()) {
-            // AddToCart on button
-            if ( isEventEnabled( 'edd_add_to_cart_enabled') && PYS()->getOption( 'edd_add_to_cart_on_button_click' ) ) {
-                add_action( 'edd_purchase_link_end', array( $this, 'setupEddSingleDownloadData' ) );
-            }
-        }
+        // edd_purchase_link_end is now registered early in setupEddButtonHooks() (called from constructor)
 
         if(EventsWoo()->isEnabled()){
             // AddToCart on button and Affiliate
@@ -277,6 +459,14 @@ class EventsManager {
             ) {
                 add_action( 'woocommerce_after_shop_loop_item', array( $this, 'setupWooLoopProductData' ) );
                 add_action( 'woocommerce_after_add_to_cart_button', 'PixelYourSite\EventsManager::setupWooSingleProductData' );
+
+                // The net for themes and page builders that never fire the button hook, where
+                // the block was simply missing and AddToCart never had data to fire with.
+                // setupWooSingleProductData() is idempotent per product id, so when the hook
+                // does run this adds nothing.
+                if ( is_product() ) {
+                    add_action( 'wp_footer', 'PixelYourSite\EventsManager::setupWooSingleProductData', 5 );
+                }
                 add_filter( 'woocommerce_blocks_product_grid_item_html', array( $this, 'setupWooBlocksProductData' ), 10, 3 );
                 add_filter('jet-woo-builder/elementor-views/frontend/archive-item-content', array( $this, 'setupWooBlocksProductData' ),10, 3);
             }
@@ -287,7 +477,7 @@ class EventsManager {
                 && Facebook()->enabled()
                 && Facebook()->isServerApiEnabled()
                 && !PYS()->isCachePreload()
-                && Consent()->checkConsent( 'facebook' )
+                && Consent()->mayFire( 'facebook' )
             ) {
                 FacebookServer()->sendEventsAsync( $this->facebookServerEvents );
                 $this->facebookServerEvents = array();
@@ -298,10 +488,20 @@ class EventsManager {
                 &&  Pinterest()->enabled()
                 && Pinterest()->isServerApiEnabled()
                 && !PYS()->isCachePreload()
-                && Consent()->checkConsent( 'pinterest' )
+                && Consent()->mayFire( 'pinterest' )
             ) {
                 PinterestServer()->sendEventsAsync( $this->pinterestServerEvents );
                 $this->pinterestServerEvents = array();
+            }
+
+            if ( count($this->openaiServerEvents) > 0
+                && OpenAI()->enabled()
+                && OpenAI()->isServerApiEnabled()
+                && !PYS()->isCachePreload()
+                && Consent()->mayFire( 'openai' )
+            ) {
+                OpenAIServer()->sendEventsAsync( $this->openaiServerEvents );
+                $this->openaiServerEvents = array();
             }
         }
 
@@ -330,7 +530,9 @@ class EventsManager {
                 }
                 $event->addPayload(['eventID'=>$this->uniqueId[$event->getId()]]);
 
-                $event->addParams($this->standardParams);
+	            if( $pixelSlug !== "reddit" ) {
+		            $event->addParams( $this->standardParams );
+	            }
                 //save different types of events
                 if($event->getType() == EventTypes::$STATIC) {
                     $this->addStaticEvent( $event,$pixel,$slug );
@@ -394,18 +596,6 @@ class EventsManager {
 
         $eventData = $event->getData();
         $eventData = $this::filterEventParams($eventData,$slug,['event_id'=>$event->getId(),'pixel'=>$pixel->getSlug()]);
-        // send only for FB Server events
-        if(Facebook()->enabled() && $pixel->getSlug() == "facebook" &&
-            ($event->getId() == "woo_complete_registration") &&
-            Facebook()->isServerApiEnabled() &&
-            Facebook()->getOption("woo_complete_registration_send_from_server") &&
-            !$this->isGdprPluginEnabled() )
-        {
-            if($eventData['delay'] == 0 && !PYS()->getOption( "server_static_event_use_ajax" )) {
-                $this->facebookServerEvents[] = $event;
-            }
-            return;
-        }
 
         //save static event data
         $this->staticEvents[ $pixel->getSlug() ][ $event->getId() ][] = $eventData;
@@ -416,6 +606,9 @@ class EventsManager {
             }
             if(isPinterestActive() && $pixel->getSlug() === "pinterest" && Pinterest()->enabled()) {
                 $this->pinterestServerEvents[] = $event;
+            }
+            if($pixel->getSlug() === "openai" && OpenAI()->enabled()) {
+                $this->openaiServerEvents[] = $event;
             }
         }
 
@@ -515,7 +708,8 @@ class EventsManager {
 		$params = array();
         $event = new SingleEvent('woo_add_to_cart_on_button_click',EventTypes::$STATIC,'woo');
         $event->args = ['productId' => $product_id,'quantity' => 1];
-
+        $eventID = EventIdGenerator::guidv4();
+        $event->addPayload(['eventID'=>$eventID]);
 		foreach ( PYS()->getRegisteredPixels() as $pixel ) {
 			/** @var Pixel|Settings $pixel */
 
@@ -533,14 +727,17 @@ class EventsManager {
 			return;
 		}
 
-		$params = json_encode( $params );
+		// JSON_HEX_TAG, or a product or category name containing "</script" ends the
+		// element and the rest of the page becomes markup. The title reaches this JSON
+		// through content_name in getWooCustomAudiencesOptimizationParams().
+		$params = wp_json_encode( $params, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT );
 
 		?>
 
 		<script type="application/javascript" style="display:none">
             /* <![CDATA[ */
-            window.pysWooProductData = window.pysWooProductData || [];
-            window.pysWooProductData[ <?php echo $product_id; ?> ] = <?php echo $params; ?>;
+            window.pysWooProductData = window.pysWooProductData || {};
+            window.pysWooProductData[ <?php echo (int) $product_id; ?> ] = <?php echo $params; ?>;
             /* ]]> */
 		</script>
 
@@ -553,7 +750,43 @@ class EventsManager {
 
         if ( ! is_object( $product)) $product = wc_get_product( get_the_ID() );
 
+        // In the footer the global cannot be trusted: a widget or shortcode that ran its
+        // own product loop without wp_reset_postdata() leaves it on a foreign product, and
+        // the net would then print that product's data while the page's own went missing —
+        // the exact case the net exists for. At the button hook the global is right, and
+        // deliberately so for a [product_page] shortcode inside a product page, hence the
+        // doing_action() scope.
+        if ( doing_action( 'wp_footer' ) && function_exists( 'is_product' ) && is_product() ) {
+            $queried_id = (int) get_queried_object_id();
+            if ( $queried_id && ( !is_object( $product ) || (int) $product->get_id() !== $queried_id ) ) {
+                $queried_product = wc_get_product( $queried_id );
+                if ( $queried_product ) {
+                    $product = $queried_product;
+                }
+            }
+        }
+
         if(!$product || !is_a($product,"WC_Product") ) return;
+
+        // This runs on the add-to-cart button hook and again on wp_footer, so that a theme
+        // or page builder which never fires the button hook still gets the data. Whichever
+        // comes first prints; the other finds the id here and leaves.
+        static $printed = array();
+
+        $guard_id = $product->get_id();
+        if ( isset( $printed[ $guard_id ] ) ) {
+            return;
+        }
+
+        // The net runs on every product page, including ones that have no add-to-cart
+        // form at all — every variation out of stock, catalog mode, "request a quote".
+        // No click can come from those, so the prerender (seconds on a large variable
+        // product) would be pure cost. Asked after the guard, so a page whose button hook
+        // already printed never pays for the check.
+        if ( doing_action( 'wp_footer' ) && function_exists( 'is_product' ) && is_product()
+             && ! pysWooProductCanBeAdded( $product ) ) {
+            return;
+        }
 
         if ( wooProductIsType( $product, 'external' ) ) {
             $eventType = 'woo_affiliate';
@@ -565,55 +798,94 @@ class EventsManager {
         // main product id
         $product_ids[] = $product_id;
 
-        // variations ids
-        if ( wooProductIsType( $product, 'variable' ) ) {
-            $product_ids = array_merge($product_ids, $product->get_children());
-        }
-
         $params = array();
 
-        foreach ( $product_ids as $product_id ) {
-
-            foreach ( PYS()->getRegisteredPixels() as $pixel ) {
-                /** @var Pixel|Settings $pixel */
-                $initEvent = new SingleEvent($eventType,EventTypes::$STATIC,"woo");
-                $initEvent->args = ['productId' => $product_id,'quantity' => 1];
-                $events = [];
-                if(method_exists($pixel,'generateEvents')) {
-                    add_filter('pys_conditional_post_id', function($id) use ($product_id) { return $product_id; });
-                    $events =  $pixel->generateEvents( $initEvent );
-                    remove_all_filters('pys_conditional_post_id',10);
-                } else {
-                    if( $pixel->addParamsToEvent( $initEvent )) {
-                        $events[] = $initEvent;
+        // One build per product id for the whole loop instead of one per pixel per
+        // helper; see WooProductScope. Closed in finally, or a throw here would leave
+        // every later wc_get_product() in this request served from the cache.
+        WooProductScope::enter();
+        try {
+            // variations ids — only those a shopper can add. For the rest WooCommerce disables
+            // the add-to-cart button and the click handler returns on .disabled, so their data
+            // could never be used. is_in_stock() is true for backorders, so those stay.
+            //
+            // Only while WooCommerce embeds availability in the page, though — the same
+            // comparison its variation form makes. Above that threshold the form fetches a
+            // variation's stock live when it is picked, so a cached page can enable the button
+            // for a variation that was out of stock at render time; leaving its data out would
+            // then lose that AddToCart silently. There every child is printed, as before.
+            if ( wooProductIsType( $product, 'variable' ) ) {
+                $children = $product->get_children();
+                $embedded = count( $children ) <= apply_filters( 'woocommerce_ajax_variation_threshold', 30, $product );
+                foreach ( $children as $child_id ) {
+                    if ( ! $embedded ) {
+                        $product_ids[] = $child_id;
+                        continue;
+                    }
+                    $child = pysWooGetProduct( (int) $child_id );
+                    if ( $child && $child->is_purchasable() && $child->is_in_stock() && pysWooVariationIsListable( $child ) ) {
+                        $product_ids[] = $child_id;
                     }
                 }
+            }
 
-                if(count($events) == 0) continue;
-                foreach ($events as $event) {
-                    // prepare event data
-                    $eventData = $event->getData();
-                    $eventData = EventsManager::filterEventParams($eventData,"woo",['event_id'=>$event->getId(),'pixel'=>$pixel->getSlug()]);
+            foreach ( $product_ids as $product_id ) {
 
-                    $params[ $product_id ][ $pixel->getSlug() ] = $eventData; // replace (use only one event for product)
+                foreach ( PYS()->getRegisteredPixels() as $pixel ) {
+                    /** @var Pixel|Settings $pixel */
+                    $initEvent = new SingleEvent($eventType,EventTypes::$STATIC,"woo");
+                    $initEvent->args = ['productId' => $product_id,'quantity' => 1];
+                    $events = [];
+                    if(method_exists($pixel,'generateEvents')) {
+                        add_filter('pys_conditional_post_id', function($id) use ($product_id) { return $product_id; });
+                        $events =  $pixel->generateEvents( $initEvent );
+                        remove_all_filters('pys_conditional_post_id',10);
+                    } else {
+                        if( $pixel->addParamsToEvent( $initEvent )) {
+                            $events[] = $initEvent;
+                        }
+                    }
+
+                    if(count($events) == 0) continue;
+                    foreach ($events as $event) {
+                        // prepare event data
+                        $eventData = $event->getData();
+                        $eventData = EventsManager::filterEventParams($eventData,"woo",['event_id'=>$event->getId(),'pixel'=>$pixel->getSlug()]);
+
+                        $params[ $product_id ][ $pixel->getSlug() ] = $eventData; // replace (use only one event for product)
+                    }
+
                 }
 
             }
-
+        } finally {
+            WooProductScope::leave();
         }
 
         if ( empty( $params ) ) {
             return;
         }
 
+        $printed[ $guard_id ] = true;
+
+        // One base plus per-id diffs when there are several ids, unless JSON cannot carry
+        // the payload — then the full print, as before compaction existed.
+        $compact = count( $params ) > 1 ? pysCompactProductData( $params ) : null;
+
         ?>
 
         <script type="application/javascript" style="display:none">
             /* <![CDATA[ */
-            window.pysWooProductData = window.pysWooProductData || [];
+            <?php if ( null !== $compact ) : ?>
+            <?php // One base plus per-id diffs; the expander rebuilds window.pysWooProductData as the full print would. ?>
+            <?php echo pysProductDataExpanderJs(); ?>
+            window.pysExpandProductData(<?php echo wp_json_encode( $compact, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ); ?>);
+            <?php else : ?>
+            window.pysWooProductData = window.pysWooProductData || {};
             <?php foreach ( $params as $product_id => $product_data ) : ?>
-            window.pysWooProductData[<?php echo $product_id; ?>] = <?php echo json_encode( $product_data ); ?>;
+            window.pysWooProductData[<?php echo (int) $product_id; ?>] = <?php echo wp_json_encode( $product_data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ); ?>;
             <?php endforeach; ?>
+            <?php endif; ?>
             /* ]]> */
         </script>
 
@@ -663,14 +935,28 @@ class EventsManager {
 
         <script type="application/javascript" style="display:none">
             /* <![CDATA[ */
-            window.pysEddProductData = window.pysEddProductData || [];
-            window.pysEddProductData[<?php echo $download; ?>] = <?php echo json_encode( $params ); ?>;
+            window.pysEddProductData = window.pysEddProductData || {};
+            window.pysEddProductData[<?php echo (int) $download; ?>] = <?php echo wp_json_encode( $params, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ); ?>;
             /* ]]> */
         </script>
 
         <?php
 
     }
+    /**
+     * Register edd_purchase_link_end hook as early as possible (from the
+     * constructor, on 'init') so it is added before any content is rendered.
+     * Required for block/FSE themes and page builders (e.g. Elementor shortcodes)
+     * where the purchase form is generated before wp_enqueue_scripts fires.
+     */
+    public function setupEddButtonHooks() {
+        if ( EventsEdd()->isEnabled() ) {
+            if ( isEventEnabled( 'edd_add_to_cart_enabled' ) && PYS()->getOption( 'edd_add_to_cart_on_button_click' ) ) {
+                add_action( 'edd_purchase_link_end', array( $this, 'setupEddSingleDownloadData' ) );
+            }
+        }
+    }
+
     static function isTrackExternalId(){
         return PYS()->getOption("send_external_id") && !apply_filters( 'pys_disable_externalID_by_gdpr', false ) && !apply_filters( 'pys_disable_all_cookie', false );
     }

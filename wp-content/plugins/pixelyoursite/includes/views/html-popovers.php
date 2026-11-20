@@ -267,7 +267,7 @@
         <li>Purchase: when a transaction is completed</li>
     </ul>
     <p><strong>IMPORTANT:</strong> in order to run Dynamic Product ads you need a Product Catalog. You can create one
-        using our <a href="https://www.pixelyoursite.com/product-catalog-facebook?utm_source=pixelyoursite-free-plugin&utm_medium=plugin&utm_campaign=free-plugin-info-popup" target="_blank">dedicated
+        using our <a href="https://www.pixelyoursite.com/plugins/product-catalog-feed-for-woocommerce" target="_blank">dedicated
         Product Catalog Feed plugin</a>.</p>
 </div>
 
@@ -430,7 +430,7 @@
 		<li>Purchase: when a transaction is completed</li>
 	</ul>
 	<p><strong>IMPORTANT:</strong> in order to run Dynamic Product ads you need a Product Catalog. You can create one
-		using our <a href="https://www.pixelyoursite.com/easy-digital-downloads-product-catalog"
+		using our <a href="https://www.pixelyoursite.com/plugins/easy-digital-downloads-product-catalog-feed"
 		target="_blank" class="link">dedicated
 	Product Catalog Feed plugin</a>.</p>
 </div>
@@ -587,7 +587,7 @@
     <p>Transform this event into a Google Ads conversion:</p>
     <p>Create a conversion inside your Google Ads account, copy its label and paste it here.</p>
     <p>If you have more than one Google Tags installed, select the same one where the conversion was created.</p>
-    <p><a href="https://www.pixelyoursite.com/documentation/track-google-ads-conversion-on-woocommerce"
+    <p><a href="https://www.pixelyoursite.com/docs/google-ads-conversions-for-woocommerce"
           target="_blank">Click here for details</a></p>
 </div>
 
@@ -595,7 +595,7 @@
 	<p>Cross-domain measurement makes it possible for Analytics to see sessions on two related sites (such as an
 	ecommerce site and a separate shopping cart site) as a single session.</p>
 	<p>
-		<a href="https://www.pixelyoursite.com/documentation/google-analytics-cross-domain-tracking"
+		<a href="https://www.pixelyoursite.com/docs/google-analytics-cross-domain-tracking"
 		target="_blank" class="link">Click here for help</a>
 	</p>
 </div>
@@ -613,7 +613,7 @@
 
 <div id="pys-aw_merchant_id" style="display: none; visibility: hidden">
     <p>This is your Google Merchant Center account ID.</p>
-    <p>To find it, log in to your Google Merchant Center account at <a href="https://merchants.google.com" target="_blank" class="link">https://merchants.google.com</a>.</p>
+    <p>To find it, log in to your Google Merchant Center account at <a href="https://business.google.com/en-all/merchant-center/" target="_blank" class="link">https://business.google.com/en-all/merchant-center/</a>.</p>
     <p>Look in the top-right corner of the page — your <b>10-digit Merchant ID is displayed there</b>.</p>
 </div>
 <div id="pys-aw_feed_country" style="display: none; visibility: hidden">

@@ -12,7 +12,12 @@ class FacebookAsyncTask extends \WP_Async_Task {
                 if (empty($this->_body_data)) {
                     return array('data' => base64_encode(serialize($data)));
                 } else {
+                    ServerEventHelper::requireServerSideClasses();
                     $oldData = unserialize(base64_decode($this->_body_data['data']), ['allowed_classes' => [
+                        // mapEventToServerEvent() builds PysServerEvent (extends Event). An
+                        // unlisted class revives as __PHP_Incomplete_Class and the first
+                        // method call on it is an Error, not an Exception.
+                        'PixelYourSite\PysServerEvent',
                         'PYS_PRO_GLOBAL\FacebookAds\Object\ServerSide\Event',
                         'PYS_PRO_GLOBAL\FacebookAds\Object\ServerSide\UserData',
                         'PYS_PRO_GLOBAL\FacebookAds\Object\ServerSide\CustomData',
@@ -26,7 +31,7 @@ class FacebookAsyncTask extends \WP_Async_Task {
                     return array( 'data' => base64_encode( serialize( $data ) ) );
                 }
             }
-        } catch (\Exception $ex) {
+        } catch (\Throwable $ex) {
             error_log($ex);
         }
         return array();
@@ -34,7 +39,9 @@ class FacebookAsyncTask extends \WP_Async_Task {
 
     protected function run_action() {
         try {
+            ServerEventHelper::requireServerSideClasses();
             $data = unserialize(base64_decode($_POST['data']), ['allowed_classes' => [
+                'PixelYourSite\PysServerEvent',
                 'PYS_PRO_GLOBAL\FacebookAds\Object\ServerSide\Event',
                 'PYS_PRO_GLOBAL\FacebookAds\Object\ServerSide\UserData',
                 'PYS_PRO_GLOBAL\FacebookAds\Object\ServerSide\CustomData',
@@ -49,7 +56,7 @@ class FacebookAsyncTask extends \WP_Async_Task {
                 FacebookServer()->sendEvent($event["pixelIds"],$event["event"]);
             }
         }
-        catch (\Exception $ex) {
+        catch (\Throwable $ex) {
             error_log($ex);
         }
     }

@@ -30,7 +30,9 @@ class PostmanSuggestProSocket {
         
         if( !post_smtp_has_pro() ) {
 
-            add_action( 'admin_menu', array( $this, 'add_menu' ), 22 );
+            add_action( 'admin_menu', array( $this, 'add_menu' ), 10000000000 );
+            add_action( 'admin_head', array( $this, 'add_upgrade_to_pro_menu_styles' ) );
+            add_action( 'admin_head', array( $this, 'add_upgrade_to_pro_menu_script' ) );
         
         }
         if( !post_smtp_has_pro() && !$hide_notice ){
@@ -90,9 +92,13 @@ class PostmanSuggestProSocket {
      */
     public function admin_enqueue_scripts( $hook ) {
 
+        if ( 'toplevel_page_postman' !== $hook && false === strpos( $hook, 'postman' ) && false === strpos( $hook, 'post-smtp' ) ) {
+            return;
+        }
+
         $pluginData = apply_filters( 'postman_get_plugin_metadata', null );
 
-        wp_register_script( 'postman-suggest-pro-sockets', POST_SMTP_ASSETS . 'js/postman-admin.js', array( 'jquery' ),  '1.2.5' , true );
+        wp_register_script( 'postman-suggest-pro-sockets', POST_SMTP_ASSETS . 'js/postman-admin.js', array( 'jquery' ),  $pluginData['version'] , true );
 
         wp_enqueue_script( 'postman-suggest-pro-sockets' );
 	    
@@ -103,11 +109,9 @@ class PostmanSuggestProSocket {
             'postmanPro', 
             $this->data
         );
-        
-        wp_register_style( 'extension-ui-fonts', 'https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap', array(), $pluginData['version'], 'all' );
 
         if ( 'post-smtp_page_extensions' === $hook ) {
-            wp_enqueue_style( 'extensions-ui', plugin_dir_url( __FILE__ ) . 'assets/css/extensions-ui.css', array( 'extension-ui-fonts' ), $pluginData['version'], 'all' );
+            wp_enqueue_style( 'extensions-ui', plugin_dir_url( __FILE__ ) . 'assets/css/extensions-ui.css', array(), $pluginData['version'], 'all' );
             wp_enqueue_script( 'extensions-ui', plugin_dir_url( __FILE__ ) . 'assets/js/extensions-ui.js', array( 'jquery' ), $pluginData['version'], true );
         }
 
@@ -125,14 +129,14 @@ class PostmanSuggestProSocket {
         <div style="color:#000;background: #fed90f;display: inline-block;padding: 23px;border-radius: 14px;font-size: 16px;font-weight: 400;box-shadow: 5px 5px 8px #c7c7c7; padding-bottom:10px; display: flex; width: 84%;" >
             <div style="width: 75%;">
                 <div>
-                    <a style="text-decoration:none; color:#231F20;" href="<?php echo esc_url( 'https://postmansmtp.com/pricing/?utm_source=plugin&utm_medium=banner&utm_campaign=plugin' ); ?>">🎉 UNLOCK THE FULL POTENTIAL OF POST SMTP WITH PRO FEATURES</a>
+                    <a style="text-decoration:none; color:#231F20;" href="<?php echo esc_url( post_smtp_utm_pricing_url( 'admin_bundles-banner-headline', 'upgrade' ) ); ?>">🎉 UNLOCK THE FULL POTENTIAL OF POST SMTP WITH PRO FEATURES</a>
                 </div>                
                 <div style="margin-top:8px">
                     <a style="font-size:10px; color:#0019ff;" href="<?php echo admin_url( 'admin.php?action=ps_skip_pro_banner' ); ?>">Not interested, Hide for now.</a>
                 </div>
             </div>
             <div style="margin: 11px 0;">
-                <a style="text-decoration:none; color:#231F20; font-size: 12px; display: block;" href="<?php echo esc_url( 'https://postmansmtp.com/pricing/?utm_source=plugin&utm_medium=banner&utm_campaign=plugin' ); ?>"><span style="background: #000;color: #fff;text-decoration: none;padding: 10px;border-radius: 10px;">👉 <?php printf( '%s', esc_html__( 'LEARN MORE', 'post-smtp' ) ); ?></span> </a>
+                <a style="text-decoration:none; color:#231F20; font-size: 12px; display: block;" href="<?php echo esc_url( post_smtp_utm_pricing_url( 'admin_bundles-banner-learn-more', 'upgrade' ) ); ?>"><span style="background: #000;color: #fff;text-decoration: none;padding: 10px;border-radius: 10px;">👉 <?php printf( '%s', esc_html__( 'LEARN MORE', 'post-smtp' ) ); ?></span> </a>
             </div>
         </div>
         <?php
@@ -215,38 +219,149 @@ class PostmanSuggestProSocket {
     }
 
     /**
-     * Add menu
+     * Pricing URL for the Upgrade to Pro menu item.
+     *
+     * @since 3.8.0
+     * @return string
+     */
+    private function get_upgrade_to_pro_url() {
+        return post_smtp_utm_pricing_url( 'sub_menu', 'upgrade' );
+    }
+
+    /**
+     * Add Upgrade to Pro menu item styles.
+     *
+     * @since 3.8.0
+     */
+    public function add_upgrade_to_pro_menu_styles() {
+        ?>
+        <style type="text/css">
+            #adminmenu #toplevel_page_postman .wp-submenu a.post-smtp-upgrade-to-pro-link,
+            #adminmenu #toplevel_page_postman .wp-submenu a[href*="postmansmtp.com/pricing"] {
+                display: block;
+                background-color: #00a32a !important;
+                color: #fff !important;
+                font-weight: 700;
+                margin: 6px 10px 2px;
+                border-radius: 3px;
+                border: none !important;
+                border-left: 0 !important;
+                box-shadow: none !important;
+                outline: none;
+            }
+
+            #adminmenu #toplevel_page_postman .wp-submenu a.post-smtp-upgrade-to-pro-link:hover,
+            #adminmenu #toplevel_page_postman .wp-submenu a.post-smtp-upgrade-to-pro-link:focus,
+            #adminmenu #toplevel_page_postman .wp-submenu a[href*="postmansmtp.com/pricing"]:hover,
+            #adminmenu #toplevel_page_postman .wp-submenu a[href*="postmansmtp.com/pricing"]:focus {
+                background-color: #008a20 !important;
+                color: #fff !important;
+                border: none !important;
+                border-left: 0 !important;
+                box-shadow: none !important;
+                outline: none;
+            }
+
+            #adminmenu #toplevel_page_postman .wp-submenu a.post-smtp-upgrade-to-pro-link::before,
+            #adminmenu #toplevel_page_postman .wp-submenu a.post-smtp-upgrade-to-pro-link::after,
+            #adminmenu #toplevel_page_postman .wp-submenu a[href*="postmansmtp.com/pricing"]::before,
+            #adminmenu #toplevel_page_postman .wp-submenu a[href*="postmansmtp.com/pricing"]::after {
+                display: none !important;
+                content: none !important;
+            }
+
+            #adminmenu #toplevel_page_postman .wp-submenu li:has( a.post-smtp-upgrade-to-pro-link ),
+            #adminmenu #toplevel_page_postman .wp-submenu li:has( a[href*="postmansmtp.com/pricing"] ) {
+                background: transparent !important;
+                box-shadow: none !important;
+            }
+
+            #adminmenu #toplevel_page_postman .wp-submenu li:has( a.post-smtp-upgrade-to-pro-link ):hover,
+            #adminmenu #toplevel_page_postman .wp-submenu li:has( a.post-smtp-upgrade-to-pro-link ):focus-within,
+            #adminmenu #toplevel_page_postman .wp-submenu li:has( a[href*="postmansmtp.com/pricing"] ):hover,
+            #adminmenu #toplevel_page_postman .wp-submenu li:has( a[href*="postmansmtp.com/pricing"] ):focus-within {
+                background: transparent !important;
+                box-shadow: none !important;
+            }
+        </style>
+        <?php
+    }
+
+    /**
+     * Open the Upgrade to Pro menu link directly in a new tab.
+     *
+     * @since 3.8.0
+     */
+    public function add_upgrade_to_pro_menu_script() {
+        ?>
+        <script>
+            (function() {
+                function setupUpgradeToProLink() {
+                    var links = document.querySelectorAll( '#adminmenu #toplevel_page_postman .wp-submenu a[href*="postmansmtp.com/pricing"]' );
+
+                    for ( var i = 0; i < links.length; i++ ) {
+                        var link = links[ i ];
+
+                        if ( link.dataset.postSmtpUpgradeReady ) {
+                            continue;
+                        }
+
+                        link.dataset.postSmtpUpgradeReady = '1';
+                        link.classList.add( 'post-smtp-upgrade-to-pro-link' );
+                        link.setAttribute( 'target', '_blank' );
+                        link.setAttribute( 'rel', 'noopener noreferrer' );
+                        link.addEventListener( 'click', function( event ) {
+                            event.preventDefault();
+                            event.stopImmediatePropagation();
+                            window.open( this.href, '_blank', 'noopener,noreferrer' );
+                            return false;
+                        } );
+                    }
+                }
+
+                if ( document.readyState === 'loading' ) {
+                    document.addEventListener( 'DOMContentLoaded', setupUpgradeToProLink );
+                } else {
+                    setupUpgradeToProLink();
+                }
+
+                var adminMenu = document.getElementById( 'adminmenu' );
+
+                if ( adminMenu && window.MutationObserver ) {
+                    var observer = new MutationObserver( setupUpgradeToProLink );
+                    observer.observe( adminMenu, { childList: true, subtree: true } );
+                }
+            })();
+        </script>
+        <?php
+    }
+
+    /**
+     * Add Upgrade to Pro menu item.
      * 
      * @since 2.8.6
      * @version 1.0.0
      */
     public function add_menu() {
+        global $submenu;
 
-        if( postman_is_bfcm() ) {
+        $parent_slug = PostmanViewController::POSTMAN_MENU_SLUG;
 
-            $menu_text = sprintf( 
-                '<span class="dashicons dashicons-superhero ps-pro-icon"></span>%1$s<span class="menu-counter"><b>%2$s</b></span>', 
-                __( 'Extensions', 'post-smtp' ),
-                '24%OFF'
-            );
-
+        if ( ! current_user_can( 'manage_options' ) || ! isset( $submenu[ $parent_slug ] ) ) {
+            return;
         }
-        else {
 
-            $menu_text = sprintf( '<span class="dashicons dashicons-superhero ps-pro-icon"></span> %1$s', __( 'Extensions', 'post-smtp' ) );
+        $menu_text = sprintf(
+            '<span class="post-smtp-upgrade-to-pro-menu">%s</span>',
+            esc_html__( 'Upgrade to Pro', 'post-smtp' )
+        );
 
-        }
-        
-        add_submenu_page(
-            PostmanViewController::POSTMAN_MENU_SLUG,
-            __( 'Extensions', 'post-smtp' ),
+        $submenu[ $parent_slug ][] = array(
             $menu_text,
             'manage_options',
-            'extensions',
-            array( $this, 'extensions' ),
-            99
+            esc_url( $this->get_upgrade_to_pro_url() ),
+            __( 'Upgrade to Pro', 'post-smtp' ),
         );
-        
     }
 
     public function extensions() {
@@ -269,14 +384,20 @@ class PostmanSuggestProSocket {
 		    ),
             array(
                 'logo'        => $images_url . 'logos/wizard-google.png',
-                'title'       => __( 'One-Click Setup', 'post-smtp-pro' ),
-                'description' => __( 'Quick and easy way to configure the Google workspace / Gmail mailer in Post SMTP.', 'post-smtp-pro' ),
+                'title'       => __( 'Google One-Click SMTP', 'post-smtp-pro' ),
+                'description' => __( 'Instantly connect with Google Workspace (Gmail) SMTP by authorizing your Google account.', 'post-smtp-pro' ),
+            ),
+            array(
+                'logo'        => $images_url . 'logos/office365.png',
+                'title'       => __( 'Microsoft 365 One-Click SMTP', 'post-smtp-pro' ),
+                'description' => __( 'Instantly connect with your Microsoft 365/ Office 365 account without manually configuring your own app.', 'post-smtp-pro' ),
             ),
 	    );
         
         $bonus = array(
-           
-            'email-logs-attachment'      => array(
+
+            'email-logs-attachment' =>
+            array(
                 'logo'          => $images_url . 'logos/email-delivery-log.png',
                 'title'         => __( 'Email Log Attachment', 'post-smtp-pro' ),
                 'description'   => __( 'View and resend any email attachment right from you email log screen to streamline email communication.', 'post-smtp-pro' )
@@ -299,7 +420,7 @@ class PostmanSuggestProSocket {
             array(
                 'logo' => $images_url . 'logos/email-delivery-and-logs.png',
                 'title' => esc_html__( 'Email Delivery and Logs', 'post-smtp' ),
-                'description' => esc_html__( 'Get more advance logs filter with all technical details.', 'post-smtp' ),
+                'description' => esc_html__( 'Send emails from the back-end, manage your email quota, retry failed emails, and delete log history to optimize email delivery.', 'post-smtp' ),
             ),
             array(
                 'logo' => $images_url . 'logos/microsoft-teams.png',
@@ -307,13 +428,41 @@ class PostmanSuggestProSocket {
                 'description' => esc_html__( 'Set up and receive all your WordPress email failure alerts through webhook URL of your MS Teams.', 'post-smtp' ),
             ),
         );
-        $features         = array(
-            esc_attr__( 'Office365, Amazon SES, and Zoho SMTP.', 'post-smtp' ),
-	        esc_attr__( 'Resend failed emails in bulk.', 'post-smtp' ),
-	        esc_attr__( 'Auto-resend failed emails.', 'post-smtp' ),
-	        esc_attr__( 'Open email tracking.', 'post-smtp' ),
-	        esc_attr__( 'Advance email report and tracking.', 'post-smtp' ),
-	        esc_attr__( 'Post SMTP Mobile App PRO.', 'post-smtp' ),
+        $popup_columns = array(
+            array(
+                array(
+                    'text' => __( 'All Pro Mailers', 'post-smtp' ),
+                    'icons' => array( 
+                        $images_url . 'office-sp.svg',
+                        $images_url . 'gmail-sp.svg',
+                        $images_url . 'aws-sp.svg',
+                        $images_url . 'zoho-sp.svg',
+                    )
+                ),
+                array(
+                    'text' => __( 'Email Failure Alerts', 'post-smtp' ),
+                    'icons' => array( 
+                        $images_url . 'teams-sp.svg',
+                        $images_url . 'slack-sp.svg',
+                        $images_url . 'twilio-sp.svg',
+                        $images_url . 'chrome-sp.svg',
+                    )
+                ),
+                array(
+                    'text' => __( 'Google & Microsoft one-click setup.', 'post-smtp' )
+                )
+            ),
+            array(
+                array(
+                    'text' => __( 'Email Reports and Tracking', 'post-smtp' )
+                ),
+                array(
+                    'text' => __( 'Email Attachment Support', 'post-smtp' )
+                ),
+                array(
+                    'text' => __( 'Mobile App Pro Features', 'post-smtp' )
+                )
+                ),
         );
 
         ob_start();
@@ -446,32 +595,42 @@ class PostmanSuggestProSocket {
                 
                 <span class="post-smtp-close-button">&times;</span>
                 
-                <div class="post-smtp-logo post-smtp-container">
-                    <img src="<?php echo esc_attr( POST_SMTP_ASSETS ) . 'images/reporting/post_logo.png'; ?>" alt="Post SMTP Logo" />
+                <div class="post-smtp-logo post-smtp-container" style="padding-bottom: 10px;">
+                    <img class="post-smtp-extension-logo" src="<?php echo esc_url( $images_url . 'post-smtp-extension-logo.svg' ); ?>" width="160" height="36" alt="<?php esc_attr_e( 'Post SMTP', 'post-smtp' ); ?>" />
                 </div>
                 
                 <div class="post-smtp-container" style="padding-top:0;padding-bottom: 0;">
                     
                     <h2 class="post-smtp-h2">
-                        <?php esc_html_e( 'Unlock Pro SMTP Mailers & More Advanced Features!', 'post-smtp' ); ?>
+                        <?php echo wp_kses_post( __( 'Enhance your email deliverability with<br>powerful premium features.', 'post-smtp' ) ); ?>
                     </h2>
                     
-                    <ul class="post-smtp-unorderlist">
-                        <?php foreach ( $features as $feature ) : ?>
-                            <li>
-                                <img style="margin-bottom: -4px;" src="<?php echo esc_attr( $images_url ); ?>check.png" alt="Check" />
-                                <?php echo esc_html( $feature ); ?>
-                            </li>
+                    <div class="post-smtp-popup-grid">
+                        <?php foreach ( $popup_columns as $column ) : ?>
+                        <div class="post-smtp-popup-col">
+                            <?php foreach ( $column as $feature ) : ?>
+                            <div class="post-smtp-popup-feature">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#4B68B8"/><path d="M7 12.5L10.5 16L17 8" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                <span><?php echo esc_html( $feature['text'] ); ?></span>
+                                <?php if ( ! empty( $feature['icons'] ) ) : ?>
+                                <div class="post-smtp-popup-feature-icons">
+                                    <?php foreach ( $feature['icons'] as $icon ) : ?>
+                                    <img src="<?php echo esc_url( $icon ); ?>" alt="" width="16" height="16" class="post-smtp-popup-feature-icon" />
+                                    <?php endforeach; ?>
+                                </div>
+                                <?php endif; ?>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
                         <?php endforeach; ?>
-                    </ul>
+                    </div>
                     
                 </div>
                 
-                <div class="post-smtp-text-center" style="margin-top: 25px;">
-                    <a href="https://postmansmtp.com/pricing/?utm_source=plugin&utm_medium=extension_screen_pop_up&utm_campaign=plugin" class="post-smtp-cta">
-                        <img style="margin: 0 4px -6px 0;" alt="diamond" src="<?php echo esc_attr( $images_url ); ?>diamond.png" />
-                        <?php esc_html_e( 'Get Post SMTP Pro', 'post-smtp' ); ?>
-                        <img style="margin: 0 0 -4px 4px;" alt="arrow" src="<?php echo esc_attr( $images_url ); ?>arrow.png" />
+                <div class="post-smtp-popup-footer" style="margin-top: 15px;">
+                    <a href="<?php echo esc_url( post_smtp_utm_pricing_url( 'extension_screen_pop_up', 'upgrade' ) ); ?>" class="post-smtp-cta">
+                        <?php esc_html_e( 'Upgrade Now', 'post-smtp' ); ?>
+                        <svg style="margin-left: 5px;" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </a>
                 </div>
             </div>

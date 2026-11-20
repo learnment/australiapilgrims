@@ -11,7 +11,7 @@ class Consent {
 	private static $_instance;
 	private string $consentKey    = "pys_consent";
 	private bool   $consentLoaded = false;
-	private bool   $consentPlugin = false;
+	private ?bool  $consentPlugin = null;
 
 	private array $consentData = array(
 		'facebook'   => true,
@@ -19,6 +19,8 @@ class Consent {
 		'bing'       => true,
 		'pinterest'  => true,
 		'gtm'        => true,
+		'reddit'     => true,
+		'openai'     => true,
 	);
 
 	public static function instance(): Consent {
@@ -30,26 +32,32 @@ class Consent {
 		return self::$_instance;
 	}
 
-	public function __construct() {
-		$this->checkConsentPlugin();
-
-		if ( $this->consentPlugin ) {
-			$this->loadConsent();
-		}
-	}
-
+	/**
+	 * Consent is resolved on first use, never at construction time.
+	 *
+	 * @return void
+	 */
 	private function loadConsent() {
 
 		if ( $this->consentLoaded ) {
 			return;
 		}
 
-		if ( isset( $_COOKIE[ $this->consentKey ] ) && !empty( $_COOKIE[ $this->consentKey ] ) ) {
+		$has_cookie = false;
+
+		if ( $this->cookieYesActive() ) {
+
+			// CookieYes writes its own cookie from JS; it is the source of truth.
+			$this->consentData = $this->readCookieYesConsent();
+			$has_cookie        = true;
+
+		} elseif ( isset( $_COOKIE[ $this->consentKey ] ) && !empty( $_COOKIE[ $this->consentKey ] ) ) {
 
 			$consent = json_decode( base64_decode( sanitize_text_field( $_COOKIE[ $this->consentKey ] ) ), true );
 
 			if ( !empty( $consent ) ) {
 				$this->consentData = $consent;
+				$has_cookie        = true;
 			} else {
 				$this->disableAllPixels();
 			}
@@ -58,7 +66,7 @@ class Consent {
 			$this->disableAllPixels();
 		}
 
-		$this->consentLoaded = true;
+		$this->consentLoaded = (bool) did_action( 'plugins_loaded' );
 
 		if ( apply_filters( 'pys_disable_by_gdpr', false ) ) {
 			$this->disableAllPixels();
@@ -66,14 +74,119 @@ class Consent {
 			return;
 		}
 
-		$this->consentData[ 'facebook' ] = !apply_filters( 'pys_disable_facebook_by_gdpr', false );
-		$this->consentData[ 'ga' ] = $this->consentData[ 'gtm' ] = !apply_filters( 'pys_disable_analytics_by_gdpr', false );
-		$this->consentData[ 'pinterest' ] = !apply_filters( 'pys_disable_pinterest_by_gdpr', false );
-		$this->consentData[ 'bing' ] = !apply_filters( 'pys_disable_bing_by_gdpr', false );
+		$this->applyGdprFilter( array( 'facebook' ), 'pys_disable_facebook_by_gdpr', $has_cookie );
+		$this->applyGdprFilter( array( 'ga', 'gtm' ), 'pys_disable_analytics_by_gdpr', $has_cookie );
+		$this->applyGdprFilter( array( 'pinterest' ), 'pys_disable_pinterest_by_gdpr', $has_cookie );
+		$this->applyGdprFilter( array( 'bing' ), 'pys_disable_bing_by_gdpr', $has_cookie );
+		$this->applyGdprFilter( array( 'reddit' ), 'pys_disable_reddit_by_gdpr', $has_cookie );
+		$this->applyGdprFilter( array( 'openai' ), 'pys_disable_openai_by_gdpr', $has_cookie );
 	}
 
-	private function checkConsentPlugin(): void {
-		$this->consentPlugin = isCookiebotPluginActivated() || isCookieNoticePluginActivated() || isRealCookieBannerPluginActivated() || isConsentMagicPluginActivated() || isCookieLawInfoPluginActivated();
+	/**
+	 * A consent plugin speaks through one of two channels, and only one of them
+	 * is present on any given site.
+	 *
+	 * @param string[] $slugs      Pixels the filter governs.
+	 * @param string   $filter     Filter name.
+	 * @param bool     $has_cookie Whether the visitor's choice was in the cookie.
+	 * @return void
+	 */
+	private function applyGdprFilter( array $slugs, string $filter, bool $has_cookie ): void {
+
+		if ( has_filter( $filter ) ) {
+			$disabled = (bool) apply_filters( $filter, false );
+
+			foreach ( $slugs as $slug ) {
+				$this->consentData[ $slug ] = !$disabled;
+			}
+
+			return;
+		}
+
+		if ( $has_cookie ) {
+			return; // the cookie already carries the answer
+		}
+
+		foreach ( $slugs as $slug ) {
+			$this->consentData[ $slug ] = true;
+		}
+	}
+
+	/**
+	 * Is a supported consent plugin present? Resolved on first use, not at
+	 * construction: this file loads before the theme, and pys_cookiebot_active
+	 * may be registered in a theme. Cached only once the theme has had its
+	 * chance to hook (after_setup_theme); earlier calls are answered but not
+	 * remembered.
+	 */
+	private function consentPluginActive(): bool {
+		if ( null !== $this->consentPlugin ) {
+			return $this->consentPlugin;
+		}
+		$active = isCookiebotPluginActivated() || isCookieNoticePluginActivated() || isRealCookieBannerPluginActivated() || isConsentMagicPluginActivated() || isCookieLawInfoPluginActivated();
+		if ( did_action( 'after_setup_theme' ) ) {
+			$this->consentPlugin = $active;
+		}
+		return $active;
+	}
+
+	/**
+	 * CookieYes (not its legacy mode) with the integration switched on.
+	 *
+	 * @return bool
+	 */
+	private function cookieYesActive(): bool {
+		return isCookieLawInfoPluginActivated()
+			&& PYS()->getOption( 'gdpr_cookie_law_info_integration_enabled' )
+			&& !( function_exists( 'cky_is_legacy' ) && cky_is_legacy() );
+	}
+
+	/**
+	 * CookieYes category a pixel belongs to.
+	 *
+	 * @param string $slug Pixel slug.
+	 * @return string
+	 */
+	private function cookieYesCategory( string $slug ): string {
+		return in_array( $slug, array( 'analytics', 'ga', 'gtm' ), true ) ? 'analytics' : 'advertisement';
+	}
+
+	/**
+	 * Per-pixel consent from the CookieYes / WebToffee cookie. No cookie means
+	 * no answer yet, so nothing is allowed.
+	 *
+	 * @return array
+	 */
+	private function readCookieYesConsent(): array {
+
+		$raw = '';
+
+		if ( !empty( $_COOKIE[ 'cookieyes-consent' ] ) ) {
+			$raw = $_COOKIE[ 'cookieyes-consent' ];
+		} elseif ( !empty( $_COOKIE[ 'wt_consent' ] ) ) {
+			$raw = $_COOKIE[ 'wt_consent' ];
+		}
+
+		$categories = array();
+
+		if ( is_string( $raw ) && '' !== $raw ) {
+			foreach ( explode( ',', sanitize_text_field( wp_unslash( $raw ) ) ) as $pair ) {
+				$parts = explode( ':', $pair, 2 );
+
+				if ( 2 === count( $parts ) ) {
+					$categories[ trim( $parts[ 0 ] ) ] = trim( $parts[ 1 ] );
+				}
+			}
+		}
+
+		$consent = array();
+
+		foreach ( array_keys( $this->consentData ) as $slug ) {
+			$category         = $this->cookieYesCategory( $slug );
+			$consent[ $slug ] = isset( $categories[ $category ] ) && 'yes' === $categories[ $category ];
+		}
+
+		return $consent;
 	}
 
 	private function disableAllPixels(): void {
@@ -84,8 +197,69 @@ class Consent {
 		unset( $pixel );
 	}
 
+	/**
+	 * A refusal does not always mean silence.
+	 *
+	 * @param string $pixel Pixel slug.
+	 * @return bool
+	 */
+	public function firesInRestrictedMode( $pixel ): bool {
+
+		switch ( $pixel ) {
+
+			case 'facebook':
+				$restricted = (bool) apply_filters( 'pys_meta_ldu_mode', false );
+				break;
+
+			case 'reddit':
+				$restricted = (bool) apply_filters( 'pys_reddit_ldu_mode', false );
+				break;
+
+			case 'openai':
+				$restricted = (bool) apply_filters( 'pys_openai_consent_mode', false );
+				break;
+
+			case 'ga':
+			case 'gtm':
+			case 'google_ads':
+				$restricted = has_filter( 'cm_google_consent_mode' )
+					|| has_filter( 'pys_analytics_storage_mode' )
+					|| has_filter( 'pys_ad_storage_mode' )
+					|| has_filter( 'pys_ad_user_data_mode' )
+					|| has_filter( 'pys_ad_personalization_mode' );
+				break;
+
+			case 'bing':
+				$restricted = has_filter( 'cm_bing_consent_mode' )
+					|| has_filter( 'pys_bing_ad_storage_mode' );
+				break;
+
+			default:
+				$restricted = false;
+		}
+
+		return (bool) apply_filters( 'pys_pixel_restricted_mode', (bool) $restricted, $pixel );
+	}
+
+	/**
+	 * May this pixel report anything at all right now?
+	 *
+	 * @param string $pixel Pixel slug.
+	 * @return bool
+	 */
+	public function mayFire( $pixel ): bool {
+		return $this->checkConsent( $pixel ) || $this->firesInRestrictedMode( $pixel );
+	}
+
 	public function checkConsent( $pixel ): bool {
-        return (bool) apply_filters( 'pys_check_consent_by_gdpr', $this->consentData[ $pixel ], $pixel );
+
+		if ( $this->consentPluginActive() ) {
+			$this->loadConsent();
+		}
+
+		$consented = $this->consentData[ $pixel ] ?? false;
+
+        return (bool) apply_filters( 'pys_check_consent_by_gdpr', $consented, $pixel );
 	}
 }
 

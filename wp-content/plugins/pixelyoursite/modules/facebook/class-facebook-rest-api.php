@@ -40,23 +40,201 @@ class Facebook_REST_API {
         $eventID = $request->get_param( 'eventID' );
         $woo_order = $request->get_param( 'woo_order' );
         $edd_order = $request->get_param( 'edd_order' );
+        $referrer_url = $request->get_param( 'referrer_url' );
+        $event_source_url = $request->get_param( 'event_source_url' );
 
+        // Variant B fallback: when the browser did not send an explicit page
+        // URL, use this REST request's Referer header. For a fetch/sendBeacon
+        // fired from the visitor's page, Referer IS that page URL — which is
+        // what Meta expects for event_source_url (never the REST endpoint).
+        if ( empty( $event_source_url ) ) {
+            $referer = $request->get_header( 'referer' );
+            if ( ! empty( $referer ) ) {
+                $event_source_url = esc_url_raw( $referer );
+            }
+        }
 
+        $singleEvent = $this->data_to_single_event( $event, $data, $eventID, $ids, $woo_order, $edd_order, $referrer_url, $event_source_url );
 
-        $singleEvent = $this->data_to_single_event( $event, $data, $eventID, $ids, $woo_order, $edd_order );
+        // Authentication and the send both run inside the task: the user is needed
+        // while the payload is built in sendEventsNow(), and it may run after the
+        // response (see pys_run_after_rest_response()).
+        $send = function () use ( $singleEvent ) {
+            $authenticated = false;
+            try {
+                $authenticated = $this->authenticateVisitor();
+                // Send event using existing Facebook server logic
+                FacebookServer()->sendEventsNow( array( $singleEvent ) );
+            } catch ( \Throwable $e ) {
+                PYS()->getLog()->error( 'Facebook REST event send failed', $e );
+            } finally {
+                if ( $authenticated ) {
+                    // Back to the state this request had before us: anonymous.
+                    wp_set_current_user( 0 );
+                }
+            }
+        };
 
-        // Send event using existing Facebook server logic
-        FacebookServer()->sendEventsNow( array( $singleEvent ) );
+        // Headers are already sent at shutdown, so _fbp/_fbc can only be set
+        // now; the send then finds them in the statics. The send path returns
+        // early for an event without an ID (mapEventToServerEvent), so it mints
+        // nothing for it and neither do we.
+        if ( $eventID ) {
+            $this->mintCookiesBeforeDeferral( $data, $woo_order, $edd_order );
+        }
+        pys_run_after_rest_response( $send );
 
         return new \WP_REST_Response( array( 'success' => true ), 200 );
     }
 
     /**
-     * Check permission for REST API access
+     * The cookie step of ServerEventHelper::mapEventToServerEvent(), run while
+     * the response headers can still be sent. The deferred send runs at
+     * shutdown, when they are gone: _fbp/_fbc would no longer be minted. After
+     * this the statics are set, so the send does not mint a second time.
+     */
+    private function mintCookiesBeforeDeferral( $params, $woo_order, $edd_order ) {
+        $order = null;
+        if ( $woo_order && isWooCommerceActive() ) {
+            $order = \wc_get_order( $woo_order ) ?: null;
+        }
+        $order_bound = $order || ! empty( $edd_order );
+
+        $signal_order = $order;
+        if ( ! $signal_order && $edd_order && isEddActive() ) {
+            $signal_order = pys_edd_order_signal_source( $edd_order );
+        }
+        $signals = pys_event_client_signals(
+            $signal_order,
+            pys_client_ip_for_capi(),
+            ! empty( $_SERVER['HTTP_USER_AGENT'] ) ? $_SERVER['HTTP_USER_AGENT'] : null,
+            pys_is_admin_page_request()
+        );
+
+        // Same conditions as the send path.
+        if ( ! $signals['request_cookies'] ) {
+            return;
+        }
+        if ( ParamBuilderAdapter::is_enabled() ) {
+            ParamBuilderAdapter::for_request()->flush_cookies();
+        } elseif ( Consent()->checkConsent( 'facebook' ) ) {
+            ServerEventHelper::mintBrowserCookies( is_array( $params ) ? $params : array(), $order_bound );
+        }
+    }
+
+    /**
+     * Recognise the visitor this event belongs to.
+     *
+     * WordPress treats every REST request without an X-WP-Nonce as anonymous
+     * (rest_cookie_check_errors() in wp-includes/rest-api.php calls
+     * wp_set_current_user(0)), and this route deliberately has no nonce -- see
+     * check_permission() for why. Without this, a logged-in visitor's event is
+     * built as if nobody were there: no account id in external_id, and no
+     * email or name from their profile in advanced matching, while user_role
+     * from the page render still says otherwise.
+     *
+     * Re-validating the logged-in cookie is how pys/v1/dynamic-options already
+     * does it. It identifies, it does not authorize: nothing here depends on a
+     * capability.
+     *
+     * @return bool Whether a user was set and has to be unset afterwards.
+     */
+    protected function authenticateVisitor() {
+
+        if ( get_current_user_id() > 0 ) {
+            return false; // already recognised; not ours to change or restore
+        }
+
+        if ( ! defined( 'LOGGED_IN_COOKIE' ) || empty( $_COOKIE[ LOGGED_IN_COOKIE ] ) ) {
+            return false;
+        }
+
+        $user_id = wp_validate_auth_cookie( $_COOKIE[ LOGGED_IN_COOKIE ], 'logged_in' );
+
+        if ( ! $user_id ) {
+            return false;
+        }
+
+        wp_set_current_user( (int) $user_id );
+
+        return true;
+    }
+
+    /**
+     * Check access permissions
+     *
+     * This is a public tracking endpoint: it must be reachable by anonymous
+     * visitors and from aggressively cached HTML, so wp_verify_nonce() and
+     * capability checks are intentionally NOT used here (REST nonces are
+     * session-bound and roll every 12h, which breaks cached pages).
+     *
+     * Defense in Depth applied at this layer:
+     *   1) Same-origin enforcement via Origin / Referer headers blocks the
+     *      most common cross-site abuse vector.
+     *   2) Payload data is sanitized in sanitize_data() / get_event_args().
+     *   3) The `pys_rest_event_permission` filter lets site owners harden
+     *      this further (rate limits, bot rules) or relax it on environments
+     *      where Origin/Referer is stripped by proxies.
+     *
+     * @param \WP_REST_Request $request The request object.
+     * @return bool
      */
     public function check_permission( $request ) {
-        // Allow all requests for event tracking endpoints
-        return true;
+        $origin    = $request->get_header( 'origin' );
+        $referer   = $request->get_header( 'referer' );
+        $site      = wp_parse_url( home_url() );
+        $site_host = isset( $site['host'] ) ? strtolower( $site['host'] ) : '';
+
+        $is_same_origin = false;
+
+        if ( ! empty( $origin ) ) {
+            $origin_parts = wp_parse_url( $origin );
+            $is_same_origin = ! empty( $site_host )
+                && isset( $origin_parts['host'] )
+                && strtolower( $origin_parts['host'] ) === $site_host;
+        } elseif ( ! empty( $referer ) ) {
+            $referer_parts = wp_parse_url( $referer );
+            $is_same_origin = ! empty( $site_host )
+                && isset( $referer_parts['host'] )
+                && strtolower( $referer_parts['host'] ) === $site_host;
+        }
+
+        // Per-IP rate limiting: max requests per minute per namespace.
+        // The limit is configured via the 'pys_check_permission_rate_limit'
+        // option (Global Settings > Ajax options). Default is 60 (1 req/sec).
+        if ( $is_same_origin ) {
+            // Fixed one-minute window: the minute is part of the key, because
+            // set_transient() below restarts the TTL on every write, so a
+            // single key would never expire under steady traffic.
+            $ip     = PYS()->get_user_ip();
+            $window = (int) floor( time() / 60 );
+            $key    = 'pys_rl_' . md5( $ip . '_pys-facebook/v1_' . $window );
+            $count  = (int) get_transient( $key );
+
+            // Maximum allowed requests per minute, per IP, per pixel namespace.
+            $limit = max( 1, (int) PYS()->getOption( 'pys_check_permission_rate_limit' ) );
+
+            if ( $count >= $limit ) {
+                return new \WP_Error( 'rate_limited', 'Too many requests', [ 'status' => 429 ] );
+            }
+            set_transient( $key, $count + 1, 60 );
+        }
+
+        /**
+         * Filters whether a REST tracking request is allowed.
+         *
+         * Default: true if the request is same-origin (matching Origin or
+         * Referer host), false otherwise. Return true to fully open the
+         * endpoint, or implement custom rate limiting / bot filtering.
+         *
+         * @param bool             $allowed Whether the request is allowed.
+         * @param \WP_REST_Request $request The current request object.
+         */
+        return (bool) apply_filters(
+            'pys_rest_event_permission',
+            $is_same_origin,
+            $request
+        );
     }
 
     /**
@@ -99,20 +277,55 @@ class Facebook_REST_API {
                 'default'           => '0',
                 'sanitize_callback' => array( $this, 'sanitize_order_id' ),
             ),
+            'event_slug' => array(
+                'required'          => false,
+                'type'              => 'string',
+                'default'           => '',
+                'sanitize_callback' => 'sanitize_text_field',
+            ),
+            'order_key'  => array(
+                'required'          => false,
+                'type'              => 'string',
+                'default'           => '',
+                'sanitize_callback' => 'sanitize_text_field',
+            ),
+            'referrer_url' => array(
+                'required'          => false,
+                'type'              => 'string',
+                'default'           => '',
+                'sanitize_callback' => 'esc_url_raw',
+            ),
+            'event_source_url' => array(
+                'required'          => false,
+                'type'              => 'string',
+                'default'           => '',
+                'sanitize_callback' => 'esc_url_raw',
+            ),
         );
     }
 
 
 
     /**
-     * Sanitize data parameter
+     * Sanitize event data
+     *
+     * Recursively sanitizes every scalar value inside the decoded payload
+     * with `sanitize_text_field()` to prevent injection via nested keys/values.
+     *
+     * @param mixed $data Data to sanitize.
+     * @return array
      */
     public function sanitize_data( $data ) {
         if ( is_string( $data ) ) {
             $decoded = json_decode( $data, true );
-            return is_array( $decoded ) ? $decoded : array();
+            if ( is_array( $decoded ) ) {
+                return map_deep( $decoded, 'sanitize_text_field' );
+            }
         }
-        return is_array( $data ) ? $data : array();
+        if ( is_array( $data ) ) {
+            return map_deep( $data, 'sanitize_text_field' );
+        }
+        return [];
     }
 
     /**
@@ -139,7 +352,7 @@ class Facebook_REST_API {
     /**
      * Convert data to SingleEvent object
      */
-    private function data_to_single_event( $event_name, $params, $event_id, $ids, $woo_order, $edd_order ) {
+    private function data_to_single_event( $event_name, $params, $event_id, $ids, $woo_order, $edd_order, $referrer_url = '', $event_source_url = '' ) {
         $singleEvent = new SingleEvent( "", "" );
 
         $payload = array(
@@ -149,6 +362,14 @@ class Facebook_REST_API {
             'edd_order' => $edd_order,
             'pixelIds'  => $ids
         );
+
+        if ( ! empty( $referrer_url ) && pys_is_valid_public_url( $referrer_url ) ) {
+            $payload['referrer_url'] = $referrer_url;
+        }
+
+        if ( ! empty( $event_source_url ) && pys_is_valid_public_url( $event_source_url ) ) {
+            $payload['event_source_url'] = $event_source_url;
+        }
 
         $singleEvent->addParams( $params );
         $singleEvent->addPayload( $payload );

@@ -12,6 +12,11 @@ function pysTagTemplateSelection( tag, container ) {
     return tag.text;
 }
 
+// Add variables to store the last selected event types
+let _lastFacebookEventType = null;
+let _lastPinterestEventType = null;
+let _lastRedditEventType = null;
+let _lastBingEventType = null;
 
 jQuery(document).ready(function($) {
     function maskPassword(block) {
@@ -59,6 +64,36 @@ jQuery(document).ready(function($) {
             $( ".woo-event-value-option" ).slideUp( 400 );
         } else {
             $( ".woo-event-value-option" ).slideDown( 400 );
+        }
+    }
+
+    // In "Facebook for WooCommerce extension content_id logic" mode the Facebook ID card
+    // stays open — the WPML logic still applies — but the ID source, prefix, suffix and
+    // "Treat variable products like simple products" give way to the extension's catalog,
+    // which lists every variant as its own item. The radio only exists while the
+    // extension is active.
+    function toggleFacebookContentIdLogic() {
+        var $checked = $( 'input[name="pys[facebook][woo_content_id_logic]"]:checked' );
+        if ( !$checked.length ) {
+            return;
+        }
+        if ( $checked.val() === 'default' ) {
+            $( '.pys-fb-default-id-logic' ).slideDown( 400 );
+            $( '.pys-fb-fbwoo-id-logic' ).slideUp( 400 );
+        } else {
+            $( '.pys-fb-default-id-logic' ).slideUp( 400 );
+            $( '.pys-fb-fbwoo-id-logic' ).slideDown( 400 );
+        }
+    }
+
+    function toggleCogSourceOption() {
+        var val = $( 'input[name="pys[core][woo_cog_source]"]:checked' ).val();
+        if ( val === "wc_cog" ) {
+            $( ".pys-cog-wc-options" ).slideDown( 400 );
+            $( ".pys-cog-pixel-warning" ).slideUp( 400 );
+        } else {
+            $( ".pys-cog-wc-options" ).slideUp( 400 );
+            $( ".pys-cog-pixel-warning" ).slideDown( 400 );
         }
     }
 
@@ -239,9 +274,11 @@ jQuery(document).ready(function($) {
     }
 
     function togglePinterestCustomEventType() {
-        if ( $( "#pys_event_pinterest_event_type" ).val() === "partner_defined" ) {
+        if ( $( "#pys_event_pinterest_event_type" ).val() === "partner_defined" || $( "#pys_event_pinterest_event_type" ).val() === "custom" ) {
+            $( ".pinterest-custom-event-type" ).find('input[id*="_custom_event_type"]').attr('required', 'required');
             $( ".pinterest-custom-event-type" ).slideDown( 400 );
         } else {
+            $( ".pinterest-custom-event-type" ).find('input[id*="_custom_event_type"]').removeAttr('required');
             $( ".pinterest-custom-event-type" ).slideUp( 400 );
         }
     }
@@ -267,6 +304,364 @@ jQuery(document).ready(function($) {
         }
     }
 
+    function updateFacebookEventParamsFrom() {
+        let $select = $( '#pys_event_facebook_event_type' );
+        if ( $select.length === 0 ) return;
+
+        let currentEventType = $select.val();
+        let $panel = $( '#facebook_params_panel' );
+        let $custom = $( '.facebook-custom-event-type' );
+
+        // If the event type hasn't changed AND the panel is not empty, just ensure the panel is visible and return
+        if ( currentEventType === _lastFacebookEventType && $panel.children('.param-field-wrapper').length > 0 ) {
+            if ( $( '#pys_event_facebook_params_enabled' ).is( ":checked" ) ) {
+                $panel.slideDown( 400 );
+            }
+            return;
+        }
+
+        // Update the last selected event type
+        _lastFacebookEventType = currentEventType;
+
+        if ( currentEventType === 'CustomEvent' ) {
+            $custom.find('input[id*="_custom_event_type"]').attr('required', 'required')
+            $custom.slideDown( 400 );
+            $panel.slideUp( 400, function () {
+                // Save custom params before clearing
+                let customParamsHtml = $( '.facebook-custom-param', $panel ).clone();
+                let insertMarker = $( '.insert-marker', $panel ).clone();
+                let addButton = $( '.mt-24:has(.add-facebook-parameter)', $panel ).clone();
+
+                $( this ).html( '' );
+
+                // Restore custom params
+                customParamsHtml.each(function() {
+                    $panel.append( $(this) );
+                });
+                $panel.append( insertMarker );
+                $panel.append( addButton );
+            } );
+        } else {
+            $custom.find('input[id*="_custom_event_type"]').removeAttr('required');
+            $('.custom-event-type-error').remove();
+            let fields = $select.find( ":selected" ).data( 'fields' );
+
+            if ( fields.length === 0 || !$( '#pys_event_facebook_params_enabled' ).is( ":checked" ) ) {
+                $panel.slideUp( 400, function () {
+                    // Save custom params before clearing
+                    let customParamsHtml = $( '.facebook-custom-param', $panel ).clone();
+                    let insertMarker = $( '.insert-marker', $panel ).clone();
+                    let addButton = $( '.mt-24:has(.add-facebook-parameter)', $panel ).clone();
+
+                    $( this ).html( '' );
+
+                    // Restore custom params
+                    customParamsHtml.each(function() {
+                        $panel.append( $(this) );
+                    });
+                    $panel.append( insertMarker );
+                    $panel.append( addButton );
+                } );
+            } else {
+                // Save custom params before clearing
+                let customParamsHtml = $( '.facebook-custom-param', $panel ).clone();
+                let insertMarker = $( '.insert-marker', $panel ).clone();
+                let addButton = $( '.mt-24:has(.add-facebook-parameter)', $panel ).clone();
+
+                $panel.html( '' )
+                fields.forEach( function ( item ) {
+                    $panel.append( renderField( item ) )
+                } );
+
+                // Restore custom params
+                customParamsHtml.each(function() {
+                    $panel.append( $(this) );
+                });
+                $panel.append( insertMarker );
+                $panel.append( addButton );
+
+                $panel.slideDown( 400 );
+            }
+
+            $custom.slideUp( 400 );
+        }
+    }
+
+    function updateFacebookParamFormVisibility( new_form = false ) {
+        if ( $( '#pys_event_facebook_params_enabled:checked' ).length > 0 ) {
+            if ( new_form ) {
+                updateFacebookEventParamsFrom();
+            }
+            $( '#facebook_params_panel' ).slideDown( 400 );
+        } else {
+            $( '#facebook_params_panel' ).slideUp( 400 );
+        }
+    }
+
+    function updatePinterestEventParamsFrom() {
+        let $select = $( '#pys_event_pinterest_event_type' );
+        if ( $select.length === 0 ) return;
+
+        let currentEventType = $select.val();
+        let $panel = $( '#pinterest_params_panel' );
+        let $custom = $( '.pinterest-custom-event-type' );
+
+        // If the event type hasn't changed AND the panel is not empty, just ensure the panel is visible and return
+        if ( currentEventType === _lastPinterestEventType && $panel.children('.param-field-wrapper').length > 0 ) {
+            if ( $( '#pys_event_pinterest_params_enabled' ).is( ":checked" ) ) {
+                $panel.slideDown( 400 );
+            }
+            return;
+        }
+
+        _lastPinterestEventType = currentEventType;
+
+        if ( currentEventType === 'partner_defined' || currentEventType === 'custom' ) {
+            $custom.find('input[id*="_custom_event_type"]').attr('required', 'required');
+            $custom.slideDown( 400 );
+        } else {
+            $custom.find('input[id*="_custom_event_type"]').removeAttr('required');
+            $('.custom-event-type-error').remove();
+            $custom.slideUp( 400 );
+        }
+
+        let fields = $select.find( ":selected" ).data( 'fields' );
+
+        if ( fields.length === 0 || !$( '#pys_event_pinterest_params_enabled' ).is( ":checked" ) ) {
+            $panel.slideUp( 400, function () {
+                // Save custom params before clearing
+                let customParamsHtml = $( '.pinterest-custom-param', $panel ).clone();
+                let insertMarker = $( '.insert-marker', $panel ).clone();
+                let addButton = $( '.mt-24:has(.add-pinterest-parameter)', $panel ).clone();
+
+                $( this ).html( '' );
+
+                // Restore custom params
+                customParamsHtml.each(function() {
+                    $panel.append( $(this) );
+                });
+                $panel.append( insertMarker );
+                $panel.append( addButton );
+            } );
+        } else {
+            // Save custom params before clearing
+            let customParamsHtml = $( '.pinterest-custom-param', $panel ).clone();
+            let insertMarker = $( '.insert-marker', $panel ).clone();
+            let addButton = $( '.mt-24:has(.add-pinterest-parameter)', $panel ).clone();
+
+            $panel.html( '' )
+            fields.forEach( function ( item ) {
+                $panel.append( renderField( item ) )
+            } );
+
+            // Restore custom params
+            customParamsHtml.each(function() {
+                $panel.append( $(this) );
+            });
+            $panel.append( insertMarker );
+            $panel.append( addButton );
+
+            $panel.slideDown( 400 );
+        }
+    }
+
+    function updatePinterestParamFormVisibility( new_form = false ) {
+        if ( $( '#pys_event_pinterest_params_enabled:checked' ).length > 0 ) {
+            if ( new_form ) {
+                updatePinterestEventParamsFrom();
+            }
+            $( '#pinterest_params_panel' ).slideDown( 400 );
+        } else {
+            $( '#pinterest_params_panel' ).slideUp( 400 );
+        }
+    }
+
+    function updateBingEventParamsFrom() {
+        let $select = $( '#pys_event_bing_event_type' );
+        if ( $select.length === 0 ) return;
+
+        let currentEventType = $select.val();
+        let $panel = $( '#bing_params_panel' );
+        let $custom = $( '.bing-custom-event-type' );
+
+        // If the event type hasn't changed AND the panel is not empty, just ensure the panel is visible and return
+        if ( currentEventType === _lastBingEventType && $panel.children('.param-field-wrapper').length > 0 ) {
+            if ( $( '#pys_event_bing_params_enabled' ).is( ":checked" ) ) {
+                $panel.slideDown( 400 );
+            }
+            return;
+        }
+
+        _lastBingEventType = currentEventType;
+
+        if ( currentEventType === 'Custom' ) {
+            $custom.find('input[id*="_custom_event_type"]').attr('required', 'required');
+            $custom.slideDown( 400 );
+        } else {
+            $custom.find('input[id*="_custom_event_type"]').removeAttr('required');
+            $('.custom-event-type-error').remove();
+            $custom.slideUp( 400 );
+        }
+
+        let fields = $select.find( ":selected" ).data( 'fields' );
+
+        if ( fields.length === 0 || !$( '#pys_event_bing_params_enabled' ).is( ":checked" ) ) {
+            $panel.slideUp( 400, function () {
+                // Save custom params before clearing
+                let customParamsHtml = $( '.bing-custom-param', $panel ).clone();
+                let insertMarker = $( '.insert-marker', $panel ).clone();
+                let addButton = $( '.mt-24:has(.add-bing-parameter)', $panel ).clone();
+                $( this ).html( '' );
+
+                // Restore custom params
+                customParamsHtml.each(function() {
+                    $panel.append( $(this) );
+                });
+                $panel.append( insertMarker );
+                $panel.append( addButton );
+                console.log( $panel );
+            } );
+        } else {
+            // Save custom params before clearing
+            let customParamsHtml = $( '.bing-custom-param', $panel ).clone();
+            let insertMarker = $( '.insert-marker', $panel ).clone();
+            let addButton = $( '.mt-24:has(.add-bing-parameter)', $panel ).clone();
+
+            $panel.html( '' )
+            fields.forEach( function ( item ) {
+                $panel.append( renderField( item ) )
+            } );
+
+            // Restore custom params
+            customParamsHtml.each(function() {
+                $panel.append( $(this) );
+            });
+            $panel.append( insertMarker );
+            $panel.append( addButton );
+
+            $panel.slideDown( 400 );
+        }
+    }
+
+    function updateBingParamFormVisibility( new_form = false ) {
+        if ( $( '#pys_event_bing_params_enabled:checked' ).length > 0 ) {
+            if ( new_form ) {
+                updateBingEventParamsFrom();
+            }
+            $( '#bing_params_panel' ).slideDown( 400 );
+        } else {
+            $( '#bing_params_panel' ).slideUp( 400 );
+        }
+    }
+
+    /**
+     * Toggle Reddit pixel panel
+     */
+    function toggleRedditPanel() {
+        let event_reddit_enabled = $( "#pys_event_reddit_enabled" ),
+            card = event_reddit_enabled.closest( '.card' ),
+            configured = +card.attr( 'data-configured' ) === 1,
+            pixel_status = card.find( '.custom-event-pixel-status .pixel-status' );
+
+        if ( configured ) {
+            if ( event_reddit_enabled.is( ":checked" ) ) {
+                $( "#reddit_panel" ).removeClass( 'disabled' );
+                pixel_status.find( '.pixel-enabled' ).show();
+                pixel_status.find( '.pixel-disabled' ).hide();
+            } else {
+                $( "#reddit_panel" ).addClass( 'disabled' );
+                pixel_status.find( '.pixel-enabled' ).hide();
+                pixel_status.find( '.pixel-disabled' ).show();
+            }
+        } else {
+            $( '.reddit-not-configured-error' ).show();
+            $( "#reddit_panel" ).addClass( 'disabled' );
+            event_reddit_enabled.prop( 'checked', false ).prop( 'disabled', true );
+        }
+    }
+
+    function toggleRedditCustomEventType() {
+        if ( $( "#pys_event_reddit_event_type" ).val() === "Custom" ) {
+            $( ".reddit-custom-event-type" ).find('input[id*="_custom_event_type"]').attr('required', 'required');
+            $( ".reddit-custom-event-type" ).slideDown( 400 );
+        } else {
+            $( ".reddit-custom-event-type" ).find('input[id*="_custom_event_type"]').removeAttr('required');
+            $('.custom-event-type-error').remove();
+            $( ".reddit-custom-event-type" ).slideUp( 400 );
+        }
+    }
+
+    function toggleRedditParamsPanel( new_form = false ) {
+        if ( $( '#pys_event_reddit_params_enabled:checked' ).length > 0 ) {
+            if ( new_form ) {
+                updateRedditEventParamsFrom();
+            }
+            $( '#reddit_params_panel' ).slideDown( 400 );
+        } else {
+            $( '#reddit_params_panel' ).slideUp( 400 );
+        }
+    }
+
+    toggleRedditPanel();
+    toggleRedditCustomEventType();
+    toggleRedditParamsPanel();
+
+    $( "#pys_event_reddit_enabled" ).on( 'click', function () {
+        toggleRedditPanel();
+    } );
+
+    $( "#pys_event_reddit_event_type" ).on( 'change', function () {
+        updateRedditEventParamsFrom();
+    } );
+
+    $( "#pys_event_reddit_params_enabled" ).on( 'click', function () {
+        toggleRedditParamsPanel( true );
+    } );
+
+    function updateRedditEventParamsFrom() {
+        let $select = $( '#pys_event_reddit_event_type' );
+        if ( $select.length === 0 ) {
+            return;
+        }
+
+        let currentEventType = $select.val();
+        let $panel = $( '#reddit_params_panel' );
+        let $custom = $( '.reddit-custom-event-type' );
+
+        // If the event type hasn't changed AND the panel is not empty, just ensure the panel is visible and return
+        if ( currentEventType === _lastRedditEventType && $panel.children('.param-field-wrapper').length > 0 ) {
+            if ( $( '#pys_event_reddit_params_enabled' ).is( ":checked" ) ) {
+                $panel.slideDown( 400 );
+            }
+            return;
+        }
+
+        _lastRedditEventType = currentEventType;
+
+        if ( currentEventType === 'Custom' ) {
+            $custom.find('input[id*="_custom_event_type"]').attr('required', 'required');
+            $custom.slideDown( 400 );
+        } else {
+            $custom.find('input[id*="_custom_event_type"]').removeAttr('required');
+            $custom.slideUp( 400 );
+        }
+
+        let fields = $select.find( ":selected" ).data( 'fields' );
+
+        if ( fields.length === 0 || !$( '#pys_event_reddit_params_enabled' ).is( ":checked" ) ) {
+            $panel.slideUp( 400, function () {
+                $( this ).html( '' );
+            } );
+        } else {
+            $panel.html( '' )
+            fields.forEach( function ( item ) {
+                $panel.append( renderField( item ) )
+            } );
+
+            $panel.slideDown( 400 );
+        }
+    }
+
     function toggleGoogleAnalyticsPanel() {
         if ( $( "#pys_event_ga_enabled" ).is( ":checked" ) ) {
             $( "#analytics_panel" ).show();
@@ -285,8 +680,11 @@ jQuery(document).ready(function($) {
 
     function toggleGoogleAdsCustomEventAction() {
         if ( $( "#pys_event_google_ads_event_action" ).val() === "_custom" ) {
+            $( "#pys_event_google_ads_custom_event_action" ).find('input[id*="_custom_event_action"]').attr('required', 'required');
             $( "#pys_event_google_ads_custom_event_action" ).css( "visibility", "visible" );
         } else {
+            $( "#pys_event_google_ads_custom_event_action" ).find('input[id*="_custom_event_action"]').removeAttr('required');
+            $('.custom-event-type-error').remove();
             $( "#pys_event_google_ads_custom_event_action" ).css( "visibility", "hidden" );
         }
     }
@@ -658,6 +1056,39 @@ jQuery(document).ready(function($) {
         } );
     } );
 
+    // scoped permission fields stay within the roles holding general access
+    const adminPermissionsField = $( "#pys_core_admin_permissions" );
+    const scopedPermissionsFields = $( "#pys_core_woo_edd_reports_permissions, #pys_core_woo_edd_export_permissions" );
+
+    if ( adminPermissionsField.length && scopedPermissionsFields.length ) {
+        adminPermissionsField.on( "change", function () {
+            const allowedRoles = ( $( this ).val() || [] ).concat( "administrator" );
+
+            scopedPermissionsFields.each( function () {
+                const scopedField = $( this );
+
+                scopedField.find( "option" ).each( function () {
+                    const option = $( this );
+                    const isAllowed = allowedRoles.indexOf( this.value ) !== -1;
+                    const cachedData = option.data( "data" );
+
+                    option.prop( "disabled", ! isAllowed );
+
+                    // select2 builds option data once and reuses it afterwards
+                    if ( cachedData ) {
+                        cachedData.disabled = ! isAllowed;
+                    }
+                } );
+
+                const keptRoles = ( scopedField.val() || [] ).filter( function ( role ) {
+                    return allowedRoles.indexOf( role ) !== -1;
+                } );
+
+                scopedField.val( keptRoles ).trigger( "change" );
+            } );
+        } );
+    }
+
     $( ".pys-tags-pysselect2" ).pysselect2( {
         tags: true,
         tokenSeparators: [ ",", " " ],
@@ -710,6 +1141,13 @@ jQuery(document).ready(function($) {
         toggleEDDEventValueOption();
     } );
 
+    toggleCogSourceOption();
+    $( 'input[name="pys[core][woo_cog_source]"]' ).on( 'change', function () {
+        toggleCogSourceOption();
+    } );
+
+    $( 'input[name="pys[facebook][woo_content_id_logic]"]' ).on( 'change', toggleFacebookContentIdLogic );
+
     //toggle all events
     $( "#pys_select_all_events" ).on( 'change', function () {
         if ( $( this ).prop( "checked" ) ) {
@@ -757,20 +1195,31 @@ jQuery(document).ready(function($) {
         checkConditionTypeAvailability( conditionGroup, panel );
     } );
 
-    $( ".add-event-trigger" ).on( 'click', function () {
+    $( document ).on( 'click', '.add-event-trigger', function () {
         let triggerPanel = $( this ).closest( ".event_triggers_panel" ),
             triggerType = triggerPanel.data( "trigger_type" );
         cloneAndInsertTrigger( triggerPanel, triggerType );
     } );
 
-    $( ".add-url-filter" ).on( 'click', function () {
+    $( document ).on( 'click', '.add-url-filter', function () {
         cloneAndInsertTrigger( $( this ).closest( ".event_triggers_panel" ), "url_filter" );
     } );
 
     $( document ).on( 'click', '.button-remove-row', function ( e ) {
-        $( this ).closest( ".event_trigger, .facebook-custom-param, .pinterest-custom-param, .ga-ads-custom-param" ).remove();
+        $( this ).closest( ".event_trigger, .facebook-custom-param, .pinterest-custom-param, .ga-ads-custom-param, .bing-custom-param, .reddit-custom-param" ).remove();
     } );
 
+    // Initialize _lastFacebookEventType after initial setup
+
+    if ( $( '#pys_event_facebook_event_type' ).length > 0 ) {
+        if ( $( '#pys_event_facebook_event_type' ).val() === 'CustomEvent' ) {
+            $( '.facebook-custom-event-type' ).find('input[id*="_custom_event_type"]').attr('required', 'required')
+            $( '.facebook-custom-event-type' ).css( 'display', 'block' )
+        } else {
+            $( '.facebook-custom-event-type' ).css( 'display', 'none' )
+        }
+        _lastFacebookEventType = $( '#pys_event_facebook_event_type' ).val();
+    }
     toggleFacebookPanel();
     toggleFacebookCustomEventType();
     toggleFacebookParamsPanel();
@@ -780,16 +1229,15 @@ jQuery(document).ready(function($) {
         toggleFacebookPanel();
     } );
     $( "#pys_event_facebook_event_type" ).on( 'change', function () {
-        toggleFacebookCustomEventType();
-        updateFacebookParamsPanelClass();
+        updateFacebookEventParamsFrom();
     } );
     $( "#pys_event_facebook_params_enabled" ).on( 'click', function () {
-        toggleFacebookParamsPanel();
+        updateFacebookParamFormVisibility( true );
     } );
     $( "#pys_event_facebook_params_currency" ).on( 'change', function () {
         toggleFacebookCustomCurrency();
     } );
-    $( ".add-facebook-parameter" ).on( 'click', function () {
+    $( document ).on( 'click', '.add-facebook-parameter', function () {
         var facebookParamsPanel = $( "#facebook_params_panel" ),
             customParams = $( ".facebook-custom-param", facebookParamsPanel ),
             clonedParam = $( customParams[ 0 ] ).clone( true ),
@@ -803,6 +1251,16 @@ jQuery(document).ready(function($) {
         clonedParam.insertBefore( $( ".insert-marker", facebookParamsPanel ) );
     } );
 
+    // Initialize _lastPinterestEventType after initial setup
+    if ( $( '#pys_event_pinterest_event_type' ).length > 0 ) {
+        if ( $( '#pys_event_pinterest_event_type' ).val() === 'partner_defined' || $( '#pys_event_pinterest_event_type' ).val() === 'custom' ) {
+            $( '.pinterest-custom-event-type' ).find('input[id*="_custom_event_type"]').attr('required', 'required')
+            $( '.pinterest-custom-event-type' ).css( 'display', 'block' )
+        } else {
+            $( '.pinterest-custom-event-type' ).css( 'display', 'none' )
+        }
+        _lastPinterestEventType = $( '#pys_event_pinterest_event_type' ).val();
+    }
     togglePinterestPanel();
     togglePinterestCustomEventType();
     togglePinterestParamsPanel();
@@ -812,16 +1270,15 @@ jQuery(document).ready(function($) {
         togglePinterestPanel();
     } );
     $( "#pys_event_pinterest_event_type" ).on( 'change', function () {
-        togglePinterestCustomEventType();
-        updatePinterestParamsPanelClass();
+        updatePinterestEventParamsFrom();
     } );
     $( "#pys_event_pinterest_params_enabled" ).on( 'click', function () {
-        togglePinterestParamsPanel();
+        updatePinterestParamFormVisibility( true );
     } );
     $( "#pys_event_pinterest_params_currency" ).on( 'change', function () {
         togglePinterestCustomCurrency();
     } );
-    $( ".add-pinterest-parameter" ).on( 'click', function () {
+    $( document ).on( 'click', '.add-pinterest-parameter', function () {
         var pinterestParamsPanel = $( "#pinterest_params_panel" ),
             customParams = $( ".pinterest-custom-param", pinterestParamsPanel ),
             clonedParam = $( customParams[ 0 ] ).clone( true ),
@@ -848,7 +1305,7 @@ jQuery(document).ready(function($) {
     $( "#pys_event_google_ads_event_action" ).on( 'change', function () {
         toggleGoogleAdsCustomEventAction();
     } );
-    $( ".add-google_ads-parameter" ).on( 'click', function () {
+    $( document ).on( 'click', '.add-google_ads-parameter', function () {
         var googleAdsParamsPanel = $( "#google_ads_params_panel" ),
             customParams = $( ".google_ads-custom-param", googleAdsParamsPanel ),
             clonedParam = $( customParams[ 0 ] ).clone( true ),
@@ -862,9 +1319,72 @@ jQuery(document).ready(function($) {
         clonedParam.insertBefore( $( ".insert-marker", googleAdsParamsPanel ) );
     } );
 
+    // Initialize _lastBingEventType after initial setup
+    if ( $( '#pys_event_bing_event_type' ).length > 0 ) {
+        if ( $( '#pys_event_bing_event_type' ).val() === 'Custom' ) {
+            $( '.bing-custom-event-type' ).find('input[id*="_custom_event_type"]').attr('required', 'required')
+            $( '.bing-custom-event-type' ).css( 'display', 'block' )
+        } else {
+            $( '.bing-custom-event-type' ).find('input[id*="_custom_event_type"]').removeAttr('required')
+            $( '.bing-custom-event-type' ).css( 'display', 'none' )
+        }
+        _lastBingEventType = $( '#pys_event_bing_event_type' ).val();
+    }
     toggleBingPanel();
     $( "#pys_event_bing_enabled" ).on( 'click', function () {
         toggleBingPanel();
+    } );
+    $( "#pys_event_bing_event_type" ).on( 'change', function () {
+        updateBingEventParamsFrom();
+    } );
+    $( "#pys_event_bing_params_enabled" ).on( 'click', function () {
+        updateBingParamFormVisibility( true );
+    } );
+    $( document ).on( 'click', '.add-bing-parameter', function () {
+        var bingParamsPanel = $( "#bing_params_panel" ),
+            customParams = $( ".bing-custom-param", bingParamsPanel ),
+            clonedParam = $( customParams[ 0 ] ).clone( true ),
+            newParamId = $( customParams[ customParams.length - 1 ] ).data( "param_id" ) + 1,
+            newParamName = "pys[event][bing_custom_params][" + newParamId + "]";
+
+        clonedParam.data( "param_id", newParamId );
+        $( "input.custom-param-name", clonedParam ).attr( "name", newParamName + "[name]" );
+        $( "input.custom-param-value", clonedParam ).attr( "name", newParamName + "[value]" );
+        clonedParam.css( "display", "flex" );
+        clonedParam.insertBefore( $( ".insert-marker", bingParamsPanel ) );
+    } );
+
+    // Initialize _lastRedditEventType after initial setup
+    if ( $( '#pys_event_reddit_event_type' ).length > 0 ) {
+        _lastRedditEventType = $( '#pys_event_reddit_event_type' ).val();
+    }
+    toggleRedditPanel();
+    toggleRedditCustomEventType();
+    $( "#pys_event_reddit_enabled" ).on( 'click', function () {
+        toggleRedditPanel();
+    } );
+    $( "#pys_event_reddit_event_type" ).on( 'change', function () {
+        updateRedditEventParamsFrom();
+    } );
+    $( "#pys_event_reddit_params_enabled" ).on( 'click', function () {
+        if ( $( this ).is( ":checked" ) ) {
+            updateRedditEventParamsFrom();
+        } else {
+            $( "#reddit_params_panel" ).slideUp( 400 );
+        }
+    } );
+    $( document ).on( 'click', '.add-reddit-parameter', function () {
+        var redditParamsPanel = $( "#reddit_params_panel" ),
+            customParams = $( ".reddit-custom-param", redditParamsPanel ),
+            clonedParam = $( customParams[ 0 ] ).clone( true ),
+            newParamId = $( customParams[ customParams.length - 1 ] ).data( "param_id" ) + 1,
+            newParamName = "pys[event][reddit_custom_params][" + newParamId + "]";
+
+        clonedParam.data( "param_id", newParamId );
+        $( "input.custom-param-name", clonedParam ).attr( "name", newParamName + "[name]" );
+        $( "input.custom-param-value", clonedParam ).attr( "name", newParamName + "[value]" );
+        clonedParam.css( "display", "flex" );
+        clonedParam.insertBefore( $( ".insert-marker", redditParamsPanel ) );
     } );
 
     $( '#pys-add-condition .add-condition' ).on( 'click', function ( e ) {
@@ -1008,15 +1528,15 @@ jQuery(document).ready(function($) {
                     ga_fields[ i ].fields.forEach( function ( el ) {
                         ga_param_list += '<div class="ga_param mb-24">\n' +
                             '<div class="mb-8">' +
-                            '<label class="custom-event-label">' + el + '</label>' +
+                            '<label class="custom-event-label">' + el.name + '</label>' +
                             '</div>' +
-                            '<input type="text" name="pys[event][ga_params][' + el + ']" class="input-standard">' +
+                            '<input type="text" name="pys[event][ga_params][' + el.name + ']" class="input-standard">' +
                             ' </div>';
                         ga_ads_param_list += '<div class="ga_ads_param mb-24">\n' +
                             '<div class="mb-8">' +
-                            '<label class="custom-event-label">' + el + '</label>' +
+                            '<label class="custom-event-label">' + el.name + '</label>' +
                             '</div>' +
-                            '<input type="text" name="pys[event][ga_ads_params][' + el + ']" class="input-standard">' +
+                            '<input type="text" name="pys[event][ga_ads_params][' + el.name + ']" class="input-standard">' +
                             ' </div>';
                     } );
                     break;
@@ -1052,9 +1572,9 @@ jQuery(document).ready(function($) {
                 if ( ga_fields[ i ].name == value ) {
                     ga_fields[ i ].fields.forEach( function ( el ) {
                         $( ".ga-ads-param-list" ).append( '<div class="row mb-3 ga_ads_param">\n' +
-                            '<label class="col-5">' + el + '</label>' +
+                            '<label class="col-5">' + el.name + '</label>' +
                             '<div class="col-4">' +
-                            '<input type="text" name="pys[event][ga_ads_params][' + el + ']" class="form-control">' +
+                            '<input type="text" name="pys[event][ga_ads_params][' + el.name + ']" class="form-control">' +
                             '</div>' +
                             ' </div>' );
                     } );
@@ -1090,8 +1610,10 @@ jQuery(document).ready(function($) {
         }
         if ( $( '.action_merged_g4' ).length > 0 ) {
             if ( $( '.action_merged_g4' ).val() === "_custom" || $( '.action_merged_g4' ).val() === "CustomEvent" ) {
+                $('.ga_ads_custom_event_action').find('input[id*="_custom_event_action"]').attr('required', 'required')
                 $( '#ga-ads-custom-action_g4' ).slideDown(400);
             } else {
+                $('.ga_ads_custom_event_action').find('input[id*="_custom_event_action"]').removeAttr('required');
                 $( '#ga-ads-custom-action_g4' ).slideUp(400)
             }
         }
@@ -1111,9 +1633,9 @@ jQuery(document).ready(function($) {
                     gtm_fields[ i ].fields.forEach( function ( el ) {
                         gtm_param_list += '<div class="mb-24 gtm_param">' +
                             '<div class="mb-8">' +
-                            '<label class="custom-event-label">' + el + '</label>' +
+                            '<label class="custom-event-label">' + el.name + '</label>' +
                             '</div>' +
-                            '<input type="text" name="pys[event][gtm_params][' + el + ']" class="form-control input-standard">' +
+                            '<input type="text" name="pys[event][gtm_params][' + el.name + ']" class="form-control input-standard">' +
                             ' </div>';
                     } );
                     break;
@@ -1146,9 +1668,9 @@ jQuery(document).ready(function($) {
                     gtm_fields[ i ].fields.forEach( function ( el ) {
                         gtm_param_list += '<div class="mb-24 gtm_param">' +
                             '<div class="mb-8">' +
-                            '<label class="custom-event-label">' + el + '</label>' +
+                            '<label class="custom-event-label">' + el.name + '</label>' +
                             '</div>' +
-                            '<input type="text" name="pys[event][gtm_params][' + el + ']" class="form-control input-standard">' +
+                            '<input type="text" name="pys[event][gtm_params][' + el.name + ']" class="form-control input-standard">' +
                             ' </div>';
                     } );
                     break;
@@ -1176,8 +1698,11 @@ jQuery(document).ready(function($) {
     function updateGTMActionSelector() {
         if ( $( '.action_gtm' ).length > 0 ) {
             if ( $( '.action_gtm' ).val() === "_custom" || $( '.action_gtm' ).val() === "CustomEvent" ) {
+                $( '#gtm-custom-action_g4' ).find('input[id*="_custom"]').attr('required', 'required');
                 $( '#gtm-custom-action_g4' ).slideDown( 400 );
             } else {
+                $( '#gtm-custom-action_g4' ).find('input[id*="_custom"]').removeAttr('required');
+                $('.custom-event-type-error').remove();
                 $( '#gtm-custom-action_g4' ).slideUp( 400 );
             }
         }
@@ -1432,11 +1957,143 @@ jQuery(document).ready(function($) {
         $( this ).next().html( text );
     } );
 
+    /**
+     * OpenAI Edit Event
+     */
+    if ( $( '#pys_event_openai_event_type' ).length > 0 ) {
+
+        $( '#pys_event_openai_event_type' ).on( 'change', function () {
+            updateOpenAIEventParamsForm();
+        } );
+
+        $( '#pys_event_openai_params_enabled' ).on( 'change', function () {
+            updateOpenAIParamFormVisibility();
+        } );
+
+        updateOpenAICustomEventNameVisibility();
+        updateOpenAIParamFormVisibility();
+    }
+
+    function openAIIsCustomEventType() {
+        return String( $( '#pys_event_openai_event_type' ).find( ':selected' ).data( 'data-type' ) ) === 'custom';
+    }
+
+    /**
+     * The event NAME belongs to the `custom` type alone -- it is what OpenAI
+     * sends as custom_event_name, and the other types have names of their own.
+     */
+    function updateOpenAICustomEventNameVisibility( animate ) {
+        let allowed = openAIIsCustomEventType(),
+            $name = $( '.openai-custom-event-type' ),
+            $input = $name.find( 'input[id*="_custom_event_type"]' );
+
+        if ( allowed ) {
+            $input.attr( 'required', 'required' );
+            animate ? $name.slideDown( 400 ) : $name.show();
+        } else {
+            $input.removeAttr( 'required' );
+            $( '.custom-event-type-error' ).remove();
+            animate ? $name.slideUp( 400 ) : $name.hide();
+        }
+    }
+
+    /**
+     * Rebuild the standard fields for the chosen event type: the previous ones
+     * are removed and the fields of the chosen shape are appended in order.
+     */
+    function updateOpenAIEventParamsForm() {
+        let $select = $( '#pys_event_openai_event_type' );
+
+        if ( $select.length === 0 ) {
+            return;
+        }
+
+        let $panel = $( '#openai_params_panel' ),
+            fields = $select.find( ':selected' ).data( 'fields' ) || [];
+
+        updateOpenAICustomEventNameVisibility( true );
+
+        $panel.find( '.param-field-wrapper' ).remove();
+
+        fields.forEach( function ( item ) {
+            let $field = $( renderOpenAIField( item ) );
+
+            if ( item.label === 'currency' ) {
+                $field.find( 'input' )
+                    .attr( 'pattern', '[A-Za-z]{3}' )
+                    .attr( 'maxlength', '3' )
+                    .attr( 'placeholder', 'USD' )
+                    .attr( 'list', 'pys-openai-currencies' )
+                    .attr( 'title', 'Three-letter ISO 4217 code, for example USD' );
+            }
+
+            if ( item.label === 'amount' ) {
+                $field.find( 'input' ).attr( 'placeholder', '129.99' );
+            }
+
+            $panel.append( $field );
+        } );
+
+        updateOpenAIParamFormVisibility();
+    }
+
+    /** One standard field, in the shape the card renders server-side. */
+    function renderOpenAIField( data ) {
+        return '<div class="mt-24 param-field-wrapper" data-param-key="' + data.label + '">' +
+            '<div class="mb-8">' +
+            '<label class="custom-event-label">' + ( data.ui_label || data.label ) + '</label>' +
+            '</div>' +
+            '<input type="text" name="' + data.name + '" value="" placeholder="" class="input-standard">' +
+            '</div>';
+    }
+
+    function updateOpenAIParamFormVisibility() {
+        if ( $( '#pys_event_openai_params_enabled:checked' ).length > 0 ) {
+            $( '#openai_params_panel' ).slideDown( 400 );
+        } else {
+            $( '#openai_params_panel' ).slideUp( 400 );
+        }
+    }
+
+    function updateOpenAIPanelVisibility() {
+        let openai_enabled = $( '#pys_event_openai_enabled' ),
+            card = openai_enabled.closest( '.card' ),
+            configured = +card.attr( 'data-configured' ) === 1,
+            pixel_status = card.find( '.custom-event-pixel-status .pixel-status' );
+
+        if ( configured ) {
+            $( '.openai-not-configured-error' ).hide();
+
+            if ( openai_enabled.is( ':checked' ) ) {
+                $( '#openai_panel' ).removeClass( 'disabled' );
+                pixel_status.find( '.pixel-enabled' ).show();
+                pixel_status.find( '.pixel-disabled' ).hide();
+            } else {
+                $( '#openai_panel' ).addClass( 'disabled' );
+                pixel_status.find( '.pixel-enabled' ).hide();
+                pixel_status.find( '.pixel-disabled' ).show();
+            }
+        } else {
+            $( '.openai-not-configured-error' ).show();
+            $( '#openai_panel' ).addClass( 'disabled' );
+            openai_enabled.prop( 'checked', false ).prop( 'disabled', true );
+        }
+    }
+
+    if ( $( '#pys_event_openai_enabled' ).length > 0 ) {
+
+        updateOpenAIPanelVisibility();
+
+        $( '#pys_event_openai_enabled' ).on( 'click', function () {
+            updateOpenAIPanelVisibility();
+        } );
+    }
+
     function renderField( data ) {
         if ( data.type === "input" ) {
-            return '<div class="mt-24">' +
+            return '<div class="mt-24 param-field-wrapper">' +
                 '<div class="mb-8">' +
-                '<label class="custom-event-label">' + data.label + '</label>' +
+                '<label class="custom-event-label">' + ( data.ui_label || data.label ) + '</label>' +
                 '</div>' +
                 '<input type="text" name="' + data.name + '" value="" placeholder="" class="input-standard">' +
                 '</div>';
@@ -1605,6 +2262,56 @@ jQuery(document).ready(function($) {
         $('#pys-form').submit();
     });
 
+    // Custom validation for custom event type fields
+    $('#pys-form').on('submit', function (e) {
+        // Find all custom event inputs with required attribute (event_type, event_action, custom fields)
+        let $requiredCustomEventInputs = $('input[id*="_custom_event_type"][required], input[id*="_custom_event_action"][required], input[id*="_custom"][required]');
+        let hasError = false;
+        let firstErrorInput = null;
+
+        // Remove any existing error messages
+        $('.custom-event-type-error').remove();
+
+        $requiredCustomEventInputs.each(function () {
+            let $input = $(this);
+            let value = $input.val().trim();
+
+            // Check if the input is visible and empty
+            if ($input.is(':visible') && value === '') {
+                hasError = true;
+
+                if (!firstErrorInput) {
+                    firstErrorInput = $input;
+                }
+
+                // Add error message after the input
+                let errorMessage = '<div class="critical_message mt-8 custom-event-type-error">Add a name for your event, or select a standard event instead.</div>';
+                $input.after(errorMessage);
+            }
+        });
+
+        if (hasError) {
+            e.preventDefault();
+
+            // Scroll to the first error
+            if (firstErrorInput) {
+                $('html, body').animate({
+                    scrollTop: firstErrorInput.offset().top - 100
+                }, 500);
+
+                // Focus on the first error input
+                firstErrorInput.focus();
+            }
+
+            return false;
+        }
+    });
+
+    // Remove error message when user starts typing
+    $(document).on('input', 'input[id*="_custom_event_type"], input[id*="_custom_event_action"], input[id*="_custom"]', function () {
+        $(this).next('.custom-event-type-error').remove();
+    });
+
     $('.logs-wrapper .icon-trash').on('click', function (){
         $(this).closest('.card').addClass('loading');
     });
@@ -1630,5 +2337,97 @@ jQuery(document).ready(function($) {
         headButtonBlock.find(".icon-load").addClass("active");
         passwordBlock.find(".maskedInput").attr("disabled", true);
     });
+
+    // ---- Meta CAPI dynamic warnings ----
+    (function () {
+        function updateMetaCapiWarnings($container) {
+            var $toggle  = $container.find('#pys_facebook_use_server_api');
+            var $token   = $container.find('textarea[name*="facebook"][name*="server_access_api_token"]').first();
+            var on       = $toggle.is(':checked');
+            var hasToken = $token.val().trim() !== '';
+            $container.find('.pys-capi-enable-warning').toggleClass('pys-capi-hidden', on);
+            $container.find('.pys-capi-token-warning').toggleClass('pys-capi-hidden', !(on && !hasToken));
+        }
+
+        $( document ).on('change', '#pys_facebook_use_server_api', function () {
+            updateMetaCapiWarnings($( this ).closest('.pixel-data-wrap'));
+        });
+
+        $( document ).on('input', 'textarea[name*="facebook"][name*="server_access_api_token"]', function () {
+            updateMetaCapiWarnings($( this ).closest('.pixel-data-wrap'));
+        });
+    })();
+    // ---- / Meta CAPI dynamic warnings ----
 } );
 
+/* ------------------------------------------------------------------------
+ * Cookie domain detection (admin side of the PHP <-> JS handshake).
+ *
+ * PHP has no Public Suffix List, so it learns which Domain attribute the
+ * browser accepts from the front end (cookie pys_cd). That answer is per
+ * site, but it travelled per visitor, so on every new visitor's first
+ * request PHP did not know it yet and withheld _fbp / _fbc. The same probe
+ * run once here, in an administrator's browser, stores the answer in the
+ * cookie_domain option, and PHP writes both cookies on the first request
+ * again. Posted only while PHP asks for it (option empty, no filter).
+ *
+ * probeCookieDomain() and cookieDomainAccepted() are the public.js ones,
+ * verbatim; tools/tests/probe.js asserts the two copies stay identical.
+ * ---------------------------------------------------------------------- */
+(function () {
+    function probeCookieDomain() {
+        var host = '';
+        try { host = String(location.hostname || ''); } catch (e) { return ''; }
+
+        // No Domain attribute is valid for an IP literal or a dotless host.
+        if (!host || host.indexOf('.') === -1) return '';
+        if (host.indexOf(':') !== -1) return '';          // IPv6 literal
+        if (/^[\d.]+$/.test(host)) return '';             // IPv4 literal
+
+        var labels = host.split('.');
+        // Broadest first: last two labels, then three, ... up to the full host.
+        for (var take = 2; take <= labels.length; take++) {
+            var candidate = '.' + labels.slice(labels.length - take).join('.');
+            if (cookieDomainAccepted(candidate)) return candidate;
+        }
+        return '';
+    }
+
+    function cookieDomainAccepted(candidate) {
+        var name = 'pys_dt';
+        var value = String(Math.floor(Math.random() * 1e9));
+        var accepted = false;
+        try {
+            document.cookie = name + '=' + value + '; path=/; domain=' + candidate + '; SameSite=Lax';
+            accepted = ('; ' + document.cookie + ';').indexOf('; ' + name + '=' + value + ';') !== -1;
+        } catch (e) {
+            return false;
+        } finally {
+            // Remove either way; deleting an unset cookie is a no-op.
+            try {
+                document.cookie = name + '=; path=/; domain=' + candidate + '; max-age=0';
+            } catch (e) {}
+        }
+        return accepted;
+    }
+
+    function detectCookieDomain() {
+        var data = (typeof window !== 'undefined') ? window.pysCookieDomainDetect : null;
+        if (!data || !(data.detect === '1' || data.detect === 1 || data.detect === true)) return;
+        if (!data.action || !data.nonce) return;
+        var resolved = probeCookieDomain();
+        var bare = resolved ? String(resolved).replace(/^\./, '') : '';
+        // Host-only is an answer for the browser, but nothing to store: PHP
+        // keeps waiting for a visitor's report, which is correct on such hosts.
+        if (!bare || bare.indexOf('.') === -1) return;
+        try {
+            jQuery.post(ajaxurl, { action: data.action, nonce: data.nonce, domain: bare });
+        } catch (e) {}
+    }
+
+    if (typeof document !== 'undefined' && document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', detectCookieDomain);
+    } else {
+        detectCookieDomain();
+    }
+})();

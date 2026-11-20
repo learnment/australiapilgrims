@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
             'order' => '1', // message display order
             'wait' => 0, // timeout after closing the previous message
             'type' => 'event chain', // Message type, if included in the message sequence then type MUST be 'event chain'
-            'location' => 'backend', // can be "backend","plugin". backend is show in WP admin on all pages. plugin is show only in plugin page.
+            'location' => 'backend', // can be "backend","plugin". backend is shown in WP admin on all pages. plugin is show only in plugin page.
             'enabelYoutubeLink' => false, // enables or disables the link to the channel at the bottom of the block
             'enabelLogo' => false, // enable or disable the logo on the left in the block
             'enabelDismiss' => false, // enable or disable dismiss button, default enable
@@ -53,7 +53,7 @@ If need fixed message
  * */
 
 function adminGetFixedNotices() {
-    return [
+    $notices = [
         [
             'order' => '1',
             'wait' => 0,
@@ -72,22 +72,22 @@ function adminGetFixedNotices() {
                     'button_url' => 'https://www.youtube.com/watch?v=uXTpgFu2V-E'
                 ],
                 [
-                    'slug'  => 'free_block_1_message_2_v4',
-                    'title' => 'Fix SAFARI Google Ads Tracking Problem!',
-                    'message' => 'Safari removes click identifiers, breaking Google tracking. We have a solution.',
-                    'button_text' => 'Learn more',
-                    'button_url' => 'https://www.pixelyoursite.com/safari-click-id-removal-fix-google-ads',
+                    'slug'  => 'free_block_1_message_2_v5',
+                    'title' => 'Connect Claude to PixelYourSite',
+                    'message' => 'Run audits, improve EMQ, check Catalog matching, fire events and more.',
+                    'button_text' => 'Watch video',
+                    'button_url' => 'https://www.youtube.com/watch?v=HfvTdvvexOY',
                 ],
                 [
                     'slug'  => 'free_block_1_message_3_v2',
                     'title' => 'Meta EMQ Score',
                     'message' => 'What is EMQ and how you can improve it.',
                     'button_text' => 'Learn more',
-                    'button_url' => 'https://www.pixelyoursite.com/facebook-event-match-quality-score',
+                    'button_url' => 'https://www.pixelyoursite.com/strategy/emq',
                 ]
             ],
             'optoutEnabel' => true,
-            'optoutMessage' => "This is message 1 of a series of 3 notifications containing tips and tricks about how to use our plugin.",
+            'optoutMessage' => "This is message 1 of a series of 4 notifications containing tips and tricks about how to use our plugin.",
             'optoutButtonText' => "Don't show me more tips"
         ],
         [
@@ -97,20 +97,21 @@ function adminGetFixedNotices() {
             'location' => 'backend',
             'enabelYoutubeLink' => true,
             'enabelLogo' => true,
+            'enabelDismiss' => true,
             'color' => 'green',
             'multiMessage' => [
 
                 [
-                  'slug'  => 'free_block_2_message_3_v2',
-                  'message' => 'How to enable Google Consent Mode when using PixelYourSite.',
-                  'title' => 'Google Consent Mode V2',
+                  'slug'  => 'free_block_2_message_3_v3',
+                  'message' => 'Tracking only revenue when running ads can be misleading. Profit gives you a better understanding of how your ads actually perform. Learn how to send WooCommerce profit to Meta or Google Analytics and increase your spend on profitable ads.',
+                  'title' => 'Track WooCommerce PROFIT for Meta, Google Ads, and GA4',
                   'button_text' => 'Watch video',
-                  'button_url' => 'https://www.youtube.com/watch?v=uYfFesnKcW0',
+                  'button_url' => 'https://www.youtube.com/watch?v=Oce_yJSpLXk',
                 ],
 
                 [
                     'slug'  => 'free_block_2_message_1_v1',
-                    'message' => 'Learn how to create Custom Conversions on Meta using your pixel events. Use them to optimize your ads and track your ads results.',
+                    'message' => 'Learn how to create Custom Conversions on Meta using your pixel events. Use them to optimize your ads and track your ad results.',
                     'title' => 'Meta Custom Conversions using Events',
                     'button_text' => 'Watch video',
                     'button_url' => 'https://www.youtube.com/watch?v=w97FATUy7ok'
@@ -127,7 +128,7 @@ function adminGetFixedNotices() {
 
             ],
             'optoutEnabel' => true,
-            'optoutMessage' => "This is message 2 of a series of 3 notifications containing tips and tricks about how to use our plugin.",
+            'optoutMessage' => "This is message 2 of a series of 4 notifications containing tips and tricks about how to use our plugin.",
             'optoutButtonText' => "Don't show me more tips"
         ],
 
@@ -138,6 +139,7 @@ function adminGetFixedNotices() {
             'type' => 'event chain',
             'location' => 'backend',
             'enabelYoutubeLink' => true,
+            'enabelDismiss' => true,
             'enabelLogo' => true,
             'multiMessage' => [
                 [
@@ -148,23 +150,63 @@ function adminGetFixedNotices() {
                     'button_url' => 'https://www.youtube.com/watch?v=HM98mGZshvc',
                 ],
                 [
-                    'slug'  => 'free_block_3_message_2_v1',
-                    'title' => 'What WooCommerce products your ads sold',
-                    'message' => 'Meta doesn"t show you what products your ads sold, but there is an easy way to find out.',
+                    'slug'  => 'free_block_3_message_2_v2',
+                    'title' => 'Improve EMQ with Claude',
+                    'message' => 'EMQ tells you how well tracking is working. Improve it with Claude.',
                     'button_text' => 'Watch video',
-                    'button_url' => 'https://www.youtube.com/watch?v=b-eYdx9QK0Q',
+                    'button_url' => 'https://www.youtube.com/watch?v=HSrmlNgqdUs',
                 ],
 
                 [
                     'slug'  => 'free_block_3_message_3_v2',
                     'title' => 'Google Automated Discounts',
-                    'message' => 'How to setup GAD for WooCommerce inside Google Merchant.',
+                    'message' => 'How to set up GAD for WooCommerce inside Google Merchant.',
                     'button_text' => 'Learn more',
-                    'button_url' => 'https://www.pixelyoursite.com/google-automated-discounts-for-woocommerce',
+                    'button_url' => 'https://www.pixelyoursite.com/strategy/gad',
                 ],
             ],
             'optoutEnabel' => true,
-            'optoutMessage' => "This is message 3 (the last one) of a series of 3 notifications containing tips and tricks about how to use our plugin.",
+            'optoutMessage' => "This is message 3 of a series of 4 notifications containing tips and tricks about how to use our plugin.",
+            'optoutButtonText' => "Don't show me more tips"
+
+        ],
+
+
+        [
+            'order' => '4',
+            'wait' => 24,
+            'type' => 'event chain',
+            'location' => 'backend',
+            'enabelYoutubeLink' => true,
+            'enabelDismiss' => false,
+            'enabelLogo' => true,
+            'multiMessage' => [
+                [
+                    'slug'  => 'free_block_4_message_1_v2',
+                    'title' => 'Reddit Pixel',
+                    'message' => 'Learn how you can configure the Reddit Pixel with our dedicated add-on.',
+                    'button_text' => 'Read More',
+                    'button_url' => 'https://www.pixelyoursite.com/docs/reddit-settings-setup',
+                ],
+                [
+                    'slug'  => 'free_block_4_message_2_v3',
+                    'title' => 'Run Claude Audit for your pixels',
+                    'message' => 'Tell Claude to run an audit before starting your campaigns. It can find hidden issues in your pixels.',
+                    'button_text' => 'Watch video',
+                    'button_url' => 'https://www.youtube.com/watch?v=0KzzVeVVvxU',
+                ],
+                [
+                    'slug'  => 'free_block_4_message_3_v3',
+                    'title' => 'OpenAI Pixel & API',
+                    'message' => 'How to install the OpenAI Pixel, enable API, configure conversions, and test everything.',
+                    'button_text' => 'Watch video',
+                    'button_url' => 'https://www.youtube.com/watch?v=m2KWGlW-8cQ',
+                ],
+
+
+            ],
+            'optoutEnabel' => true,
+            'optoutMessage' => "This is message 4 (the last one) of a series of 4 notifications containing tips and tricks about how to use our plugin.",
             'optoutButtonText' => "Don't show me more tips"
 
         ],
@@ -185,4 +227,8 @@ function adminGetFixedNotices() {
               */
 
     ];
+    if ( class_exists( 'PixelYourSite\FeedIdCheck' ) ) {
+        $notices = array_merge( $notices, FeedIdCheck::noticeEntries() );
+    }
+    return $notices;
 }

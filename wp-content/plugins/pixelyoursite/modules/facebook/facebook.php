@@ -20,6 +20,8 @@ class Facebook extends Settings implements Pixel {
 	private static $_instance;
 	
 	private $configured;
+
+    private $moduleName = 'Facebook';
 	public static function instance() {
 		
 		if ( is_null( self::$_instance ) ) {
@@ -46,6 +48,11 @@ class Facebook extends Settings implements Pixel {
 	    } );
         add_filter('pys_facebook_settings_sanitize_verify_meta_tag_field', array($this, 'sanitize_verify_meta_tag_field'));
         add_action( 'wp_head', array( $this, 'output_meta_tag' ) );
+    }
+
+    public function getModuleName()
+    {
+        return $this->moduleName;
     }
 
     public function enabled() {
@@ -79,14 +86,22 @@ class Facebook extends Settings implements Pixel {
 	}
 
 	public function getPixelOptions() {
+		$serverApiEnabled      = $this->isServerApiEnabled() && count( $this->getApiToken() ) > 0;
+		$metaEnabledCapiPixels = $this->getMetaEnabledCapiPixelIds();
+
 		return array(
 			'pixelIds'                   => $this->getPixelIDs(),
 			'advancedMatching'           => $this->getOption( 'advanced_matching_enabled' ) ? Helpers\getAdvancedMatchingParams() : array(),
 			'advancedMatchingEnabled'    => $this->getOption( 'advanced_matching_enabled' ),
 			'removeMetadata'             => $this->getOption( 'remove_metadata' ),
-			'wooVariableAsSimple'        => $this->getOption( 'woo_variable_as_simple' ),
-			'serverApiEnabled'           => $this->isServerApiEnabled() && count( $this->getApiToken() ) > 0,
-			'wooCRSendFromServer'        => $this->getOption( "woo_complete_registration_send_from_server" ) && $this->getOption( "woo_complete_registration_fire_every_time" ),
+			'wooVariableAsSimple'        => Helpers\facebookVariableAsSimple(),
+			'serverApiEnabled'           => $serverApiEnabled,
+			'metaEnabledCapiPixels'      => $metaEnabledCapiPixels,
+			// Meta dedupes the API events it generates for Meta-Enabled CAPI
+			// against the browser event by eventID, so the id must travel with
+			// the browser event whenever either API path is active — not only
+			// for the token-based Conversion API.
+			'sendEventId'                => $serverApiEnabled || count( $metaEnabledCapiPixels ) > 0,
 			'send_external_id'           => $this->getOption( 'send_external_id' ),
 			'enabled_medical'            => $this->getOption( 'enabled_medical' ),
 			'do_not_track_medical_param' => $this->getOption( 'do_not_track_medical_param' ),
@@ -166,12 +181,8 @@ class Facebook extends Settings implements Pixel {
 
             //Automatic events
             case 'automatic_event_signup' : {
-                if(isWooCommerceActive() &&  Facebook()->getOption("woo_complete_registration_fire_every_time")) {
-                    $isActive = false;
-                } else {
-                    $event->addPayload(["name" => "CompleteRegistration"]);
-                    $isActive = $this->getOption($event->getId().'_enabled');
-                }
+                $event->addPayload(["name" => "CompleteRegistration"]);
+                $isActive = $this->getOption($event->getId().'_enabled');
             } break;
             case 'automatic_event_login' :{
                 $event->addPayload(["name" => "Login"]);
@@ -180,7 +191,7 @@ class Facebook extends Settings implements Pixel {
             case 'automatic_event_search' :{
                 $event->addPayload(["name" => "Search"]);
                 if(!empty( $_GET['s'] )) {
-                    $event->addParams(["search_string" => $_GET['s']]);
+                    $event->addParams(["search_string" => sanitize_text_field( wp_unslash( $_GET['s'] ) )]);
                 }
                 $isActive = $this->getOption($event->getId().'_enabled');
             } break;
@@ -361,20 +372,9 @@ class Facebook extends Settings implements Pixel {
                     $this->addDataToEvent($eventData, $event);
                 }
             }break;
-            case 'woo_complete_registration': {
-                if( $this->getOption("woo_complete_registration_fire_every_time") ||
-                    get_user_meta( get_current_user_id(), 'pys_complete_registration', true )
-                ) {
-                    $eventData = $this->getWooCompleteRegistrationEventParams();
-                    if($eventData) {
-                        $isActive = true;
-                        $this->addDataToEvent($eventData,$event);
-                    }
-                }
-            }break;
 
             case 'woo_add_to_cart_on_button_click':{
-                if (  $this->getOption( 'woo_add_to_cart_enabled' ) && PYS()->getOption( 'woo_add_to_cart_on_button_click' ) ) {
+                if ( PYS()->getOption( 'woo_add_to_cart_enabled' ) && $this->getOption( 'woo_add_to_cart_enabled' ) && PYS()->getOption( 'woo_add_to_cart_on_button_click' ) ) {
                     $isActive = true;
                     if(isset($event->args['productId'])) {
                         $eventData =  $this->getWooAddToCartOnButtonClickEventParams( $event->args );
@@ -456,7 +456,7 @@ class Facebook extends Settings implements Pixel {
                     $src = str_replace("]","%5D",$src);
 					// ALT tag used to pass ADA compliance
 					printf( '<noscript><img height="1" width="1" style="display: none;" src="%s" alt=""></noscript>',
-                        $src);
+                        esc_url( $src ) );
 
 					echo "\r\n";
 
@@ -486,13 +486,17 @@ class Facebook extends Settings implements Pixel {
 
 		$params = array();
 
-		$product = wc_get_product( $post->ID );
+		$product = pysWooGetProduct( $post->ID );
         if(!$product) return false;
 		$content_id = Helpers\getFacebookWooProductContentId( $post->ID );
 		$params['content_ids']  =  $content_id ;
 
-		if ( wooProductIsType( $product, 'variable' ) && ! $this->getOption( 'woo_variable_as_simple' ) ) {
+		if ( wooProductIsType( $product, 'variable' ) && ! Helpers\facebookVariableAsSimple() ) {
 			$params['content_type'] = 'product_group';
+			// A product_group event carries the group ID (parent post ID), not the parent's item ID.
+			if ( Helpers\isDefaultWooContentIdLogic() ) {
+				$params['content_ids'] = Helpers\getFacebookWooProductGroupId( $post->ID );
+			}
 		} else {
 			$params['content_type'] = 'product';
 		}
@@ -524,7 +528,7 @@ class Facebook extends Settings implements Pixel {
 			// Facebook for WooCommerce plugin does not support new Dynamic Ads parameters
 			$params['contents'] =  array(
 				array(
-					'id'         => (string) reset( $content_id ),
+					'id'         => (string) reset( $params['content_ids'] ),
 					'quantity'   => 1,
 					//'item_price' => getWooProductPriceToDisplay( $post->ID ),
 				)
@@ -549,14 +553,17 @@ class Facebook extends Settings implements Pixel {
 			return false;
 		}
         $product_id = $args['productId'];
+        // Price lookup id: the selected variation, so "treat variable as simple" keeps the parent
+        // as content_id but the value is the one the customer actually chose (not the cheapest variation).
+        $price_id = !empty($args['priceId']) ? $args['priceId'] : $product_id;
         $quantity = $args['quantity'];
 
-		$params = Helpers\getWooSingleAddToCartParams( $product_id, $quantity );
+		$params = Helpers\getWooSingleAddToCartParams( $product_id, $quantity, $price_id );
         $data = array(
             'params' => $params,
         );
 
-        $product = wc_get_product($product_id);
+        $product = pysWooGetProduct($product_id);
         if(!$product) return false;
         if($product->get_type() == 'grouped') {
             $grouped = array();
@@ -575,7 +582,7 @@ class Facebook extends Settings implements Pixel {
 
 	private function getWooAddToCartOnCartEventParams() {
 
-		if ( ! $this->getOption( 'woo_add_to_cart_enabled' ) ) {
+		if ( ! $this->getOption( 'woo_add_to_cart_enabled' ) || ! isWooCartAvailable() ) {
 			return false;
 		}
 
@@ -609,7 +616,12 @@ class Facebook extends Settings implements Pixel {
 		$params = array_merge( $params, Helpers\getWooCustomAudiencesOptimizationParams( $product_id ) );
 
 		$params['num_items'] = $cart_item['quantity'];
-		$params['product_price'] = getWooProductPriceToDisplay( $product_id );
+		// Price from the cart line (the selected variation and its discounts), not the catalog.
+		$line_price = isset( $cart_item['line_subtotal'] ) ? $cart_item['line_subtotal'] : 0;
+		if ( 'incl' === get_option( 'woocommerce_tax_display_cart' ) ) {
+			$line_price += isset( $cart_item['line_subtotal_tax'] ) ? $cart_item['line_subtotal_tax'] : 0;
+		}
+		$params['product_price'] = $cart_item['quantity'] > 0 ? pys_round( $line_price / $cart_item['quantity'] ) : pys_round( $line_price );
 
 		$params['contents'] =  array(
 			array(
@@ -679,7 +691,7 @@ class Facebook extends Settings implements Pixel {
 
 	private function getWooInitiateCheckoutEventParams() {
 
-		if ( ! $this->getOption( 'woo_initiate_checkout_enabled' ) ) {
+		if ( ! $this->getOption( 'woo_initiate_checkout_enabled' ) || ! isWooCartAvailable() ) {
 			return false;
 		}
 
@@ -698,24 +710,12 @@ class Facebook extends Settings implements Pixel {
 		if ( ! $this->getOption( 'woo_purchase_enabled' ) ) {
 			return false;
 		}
-        $order_key = sanitize_key($_REQUEST['key']);
-        $cache_key = 'order_id_' . $order_key;
-        $order_id = get_transient( $cache_key );
-        global $wp;
-        if (PYS()->woo_is_order_received_page() && empty($order_id) && $wp->query_vars['order-received']) {
+        $order_id = wooGetOrderIdFromRequest();
+        if ( $order_id < 1 ) return false;
 
-            $order_id = absint( $wp->query_vars['order-received'] );
-            if ($order_id) {
-                set_transient( $cache_key, $order_id, HOUR_IN_SECONDS );
-            }
-        }
-        if ( empty($order_id) ) {
-            $order_id = (int) wc_get_order_id_by_order_key( $order_key );
-            set_transient( $cache_key, $order_id, HOUR_IN_SECONDS );
-        }
         $order    = wc_get_order( $order_id );
         if(!$order) return false;
-        
+
         $content_ids        = array();
         $content_names      = array();
         $content_categories = array();
@@ -788,7 +788,8 @@ class Facebook extends Settings implements Pixel {
 		return array(
 			'name' => 'Purchase',
 			'data' => $params,
-            'woo_order' => $order_id
+            'woo_order' => $order_id,
+            'order_key' => $order->get_order_key()
 		);
 
 	}
@@ -893,7 +894,7 @@ class Facebook extends Settings implements Pixel {
 
 		$params = array(
 			'content_type' => 'product',
-			'content_ids'  =>  Helpers\getFacebookEddDownloadContentId( $download_id ),
+			'content_ids'  =>  Helpers\getFacebookEddDownloadContentId( $download_id, $price_index ),
 		);
 
 		// content_name, category_name
@@ -902,7 +903,7 @@ class Facebook extends Settings implements Pixel {
 
 		// currency, value
 		if ( PYS()->getOption( 'edd_add_to_cart_value_enabled' ) ) {
-            
+
             $amount = getEddDownloadPriceToDisplay( $download_id, $price_index );
 			$value_option = PYS()->getOption( 'edd_add_to_cart_value_option' );
 			$global_value = PYS()->getOption( 'edd_add_to_cart_value_global', 0 );
@@ -915,7 +916,7 @@ class Facebook extends Settings implements Pixel {
 		// contents
 		$params['contents'] =  array(
 			array(
-				'id'         => (string) $download_id,
+				'id'         => Helpers\getFacebookEddDownloadContentId( $download_id, $price_index ),
 				'quantity'   => 1,
 				//'item_price' => getEddDownloadPriceToDisplay( $download_id ),
 			)
@@ -975,7 +976,17 @@ class Facebook extends Settings implements Pixel {
 		foreach ( $cart as $cart_item_key => $cart_item ) {
 
 			$download_id   = (int) $cart_item['id'];
-			$content_ids[] = Helpers\getFacebookEddDownloadContentId( $download_id );
+
+			if ( in_array( $context, array( 'Purchase', 'FrequentShopper', 'VipClient', 'BigWhale' ) ) ) {
+				$item_options = $cart_item['item_number']['options'];
+			} else {
+				$item_options = $cart_item['options'];
+			}
+
+			// Normalized price id for the content id: keep 0 (first variation), null only when there is no price option.
+			$content_price_id = isset( $item_options['price_id'] ) && $item_options['price_id'] !== '' ? $item_options['price_id'] : null;
+
+			$content_ids[] = Helpers\getFacebookEddDownloadContentId( $download_id, $content_price_id );
 
 			// content_name, category_name
 			$custom_audiences = Helpers\getEddCustomAudiencesOptimizationParams( $download_id );
@@ -986,12 +997,6 @@ class Facebook extends Settings implements Pixel {
 			$tags = array_merge( $tags, getObjectTerms( 'download_tag', $download_id ) );
 
 			$num_items += $cart_item['quantity'];
-
-			if ( in_array( $context, array( 'Purchase', 'FrequentShopper', 'VipClient', 'BigWhale' ) ) ) {
-				$item_options = $cart_item['item_number']['options'];
-			} else {
-				$item_options = $cart_item['options'];
-			}
 
 			// calculate cart items total
 			if ( $value_enabled ) {
@@ -1006,7 +1011,7 @@ class Facebook extends Settings implements Pixel {
 			
 			// contents
 			$contents[] = array(
-				'id'         => (string) $download_id,
+				'id'         => Helpers\getFacebookEddDownloadContentId( $download_id, $content_price_id ),
 				'quantity'   => $cart_item['quantity'],
 			);
 
@@ -1036,6 +1041,7 @@ class Facebook extends Settings implements Pixel {
             $params['value'] = edd_get_payment_amount( $payment_id );
             $params['currency'] = edd_get_currency();
             $data['edd_order'] = $payment_id;
+            $data['order_key'] = function_exists('edd_get_payment_key') ? edd_get_payment_key( $payment_id ) : $payment_key;
 		}
 
         $data['data'] = $params;
@@ -1052,9 +1058,12 @@ class Facebook extends Settings implements Pixel {
 		$download_id = $cart_item['id'];
 		$price_index = ! empty( $cart_item['options'] ) ? $cart_item['options']['price_id'] : null;
 
+		// Normalized price id for the content id: keep 0 (first variation), null only when there is no price option.
+		$content_price_id = isset( $cart_item['options']['price_id'] ) && $cart_item['options']['price_id'] !== '' ? $cart_item['options']['price_id'] : null;
+
 		$params = array(
 			'content_type' => 'product',
-			'content_ids' => Helpers\getFacebookEddDownloadContentId( $download_id )
+			'content_ids' => Helpers\getFacebookEddDownloadContentId( $download_id, $content_price_id )
 		);
 
 		// content_name, category_name, tags
@@ -1064,7 +1073,7 @@ class Facebook extends Settings implements Pixel {
 		$params['num_items'] = $cart_item['quantity'];
 		$params['contents'] =  array(
 			array(
-				'id'         => (string) $download_id,
+				'id'         => Helpers\getFacebookEddDownloadContentId( $download_id, $content_price_id ),
 				'quantity'   => $cart_item['quantity'],
 				//'item_price' => getEddDownloadPriceToDisplay( $download_id, $price_index ),
 			)
@@ -1166,27 +1175,30 @@ class Facebook extends Settings implements Pixel {
         return $this->getOption("use_server_api");
     }
 
-
-
-    private function getWooCompleteRegistrationEventParams($args=null) {
-
-        if ( ! $this->getOption( 'complete_registration_event_enabled' ) ) {
-            return false;
-        }
-        $params = array();
-        if($this->getOption("woo_complete_registration_fire_every_time") &&
-            $this->getOption("woo_complete_registration_use_custom_value") &&
-            isset( $_REQUEST['key'] ) && $_REQUEST['key'] != "" ) {
-            $params = Helpers\getCompleteRegistrationOrderParams();
-        }
-        $name = isset($args) && $args == "hCR" ? "hCR" : 'CompleteRegistration';
-
-        return $params = array(
-            'name'  => $name,
-            'data'  => $params,
-        );
-
+    /**
+     * Meta-Enabled Conversion API: Meta itself turns the browser pixel events
+     * into API events on a secondary destination. Works alongside the browser
+     * pixel and the token-based Conversion API, it replaces neither.
+     *
+     * @return bool
+     */
+    public function isMetaEnabledCapiEnabled() {
+        return (bool) $this->getOption( 'meta_enabled_capi' );
     }
+
+    /**
+     * Pixel IDs opted into Meta-Enabled Conversion API on the current page.
+     *
+     * @return array
+     */
+    public function getMetaEnabledCapiPixelIds() {
+        if ( ! $this->isMetaEnabledCapiEnabled() ) {
+            return array();
+        }
+
+        return $this->getPixelIDs();
+    }
+
     function output_meta_tag() {
         $metaTags = (array) Facebook()->getOption( 'verify_meta_tag' );
         foreach ($metaTags as $tag) {

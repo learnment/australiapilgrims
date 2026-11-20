@@ -92,13 +92,14 @@ function renderGroupSelectInput( &$event, $key, $groups, $full_width = false,$cl
  * @param string      $key
  */
 function renderGoogleAnalyticsMergedActionInput( &$event, $key ) {
-    renderGroupSelectInput( $event, $key, $event->GAEvents, false,'action_merged_g4' );
+    $ga_events = PixelYourSite\PYS_Event_Definitions::get_ga_events();
+    renderGroupSelectInput( $event, $key, $ga_events, false,'action_merged_g4' );
 }
 function renderMergedGAParamInput( $key, $val ) {
 
     $attr_name = "pys[event][ga_ads_params][$key]";
     $attr_id = 'pys_event_ga_ads_' . $key;
-    $attr_value = $val;
+    $attr_value = $val['value'] ?? $val;
 
     ?>
 
@@ -418,6 +419,8 @@ function renderTriggerTypeInput( $trigger, $key ) {
         'video_view'        => 'Embedded Video View - PRO',
         'email_link'        => 'Email Link - PRO',
         'form_field'        => 'Filling out a form field - PRO',
+        'copy_element'      => 'Copy element (text copy) - PRO',
+        'video_speed'       => 'Video speed increase - PRO',
     );
     $eventsFormFactory = apply_filters("pys_form_event_factory",[]);
     foreach ($eventsFormFactory as $activeFormPlugin) :
@@ -495,36 +498,92 @@ function renderCurrencyParamInput( &$event, $key ) {
 }
 
 /**
+ * Render Facebook event type input
+ * Uses Events Registry for event definitions
+ *
  * @param CustomEvent $event
  * @param string      $key
  */
-function renderFacebookEventTypeInput( &$event, $key ) {
-	
-	$options = array(
-		'ViewContent'          => 'ViewContent',
-		'AddToCart'            => 'AddToCart',
-		'AddToWishlist'        => 'AddToWishlist',
-		'InitiateCheckout'     => 'InitiateCheckout',
-		'AddPaymentInfo'       => 'AddPaymentInfo',
-		'Purchase'             => 'Purchase',
-		'Lead'                 => 'Lead',
-		'CompleteRegistration' => 'CompleteRegistration',
-		
-		'Subscribe'         => 'Subscribe',
-		'CustomizeProduct'  => 'CustomizeProduct',
-		'FindLocation'      => 'FindLocation',
-		'StartTrial'        => 'StartTrial',
-		'SubmitApplication' => 'SubmitApplication',
-		'Schedule'          => 'Schedule',
-		'Contact'           => 'Contact',
-		'Donate'            => 'Donate',
-		
-		'disabled'    => '',
-		'CustomEvent' => 'CustomEvent',
-	);
+/**
+ * The OpenAI event-type picker.
+ *
+ * @param CustomEvent $event
+ * @param string      $key
+ */
+function renderOpenAIEventTypeInput( &$event, $key ) {
+
+	$events = PixelYourSite\PYS_Event_Definitions::get_openai_events();
+	$shapes = PixelYourSite\PYS_Event_Definitions::get_openai_shapes();
+
+	$attr_name  = "pys[event][$key]";
+	$attr_id    = 'pys_event_' . $key;
+	$attr_value = $event->$key;
+
+	?>
+    <div class="select-standard-wrap">
+        <select id="<?php echo esc_attr( $attr_id ); ?>" name="<?php echo esc_attr( $attr_name ); ?>"
+                autocomplete="off" class="select-standard">
+			<?php foreach ( $events as $option_key => $option_fields ) :
+				$shape  = isset( $shapes[ $option_key ] ) ? $shapes[ $option_key ] : array(); ?>
+
+                <option data-fields="<?php echo esc_attr( wp_json_encode( $option_fields ) ); ?>"
+                        data-data-type="<?php echo esc_attr( isset( $shape[ 'data_type' ] ) ? $shape[ 'data_type' ] : '' ); ?>"
+                        value="<?php echo esc_attr( $option_key ); ?>" <?php selected( $option_key, $attr_value ); ?>>
+					<?php echo esc_html( $option_key ); ?>
+                </option>
+
+			<?php endforeach; ?>
+        </select>
+    </div>
+	<?php
+}
+
+/**
+ * The pixel picker for OpenAI.
+ *
+ * @param CustomEvent $event
+ * @param string      $key
+ */
+function renderOpenAIEventId( &$event, $key ) {
+
+	$options = array( 'all' => 'All pixels' );
+
+	foreach ( (array) PixelYourSite\OpenAI()->getPixelIDs() as $pixel_id ) {
+		$options[ $pixel_id ] = $pixel_id;
+	}
 
 	renderSelectInput( $event, $key, $options );
+}
 
+function renderFacebookEventTypeInput( &$event, $key ) {
+    // Get Facebook events from centralized Event Definitions class
+    $facebook_events = PixelYourSite\PYS_Event_Definitions::get_facebook_events();
+
+    // Ensure CustomEvent is included for backward compatibility
+    if ( !isset( $facebook_events['CustomEvent'] ) ) {
+        $facebook_events['CustomEvent'] = [];
+    }
+
+    $attr_name = "pys[event][$key]";
+    $attr_id = 'pys_event_' . $key;
+    $attr_value = esc_attr( $event->$key );
+
+    ?>
+    <div class="select-standard-wrap">
+        <select id="<?php echo esc_attr( $attr_id ); ?>" name="<?php echo esc_attr( $attr_name ); ?>" autocomplete="off"
+                class="select-standard">
+            <?php foreach ( $facebook_events as $option_key => $option_value ) :
+                $value = esc_attr( $option_key ); ?>
+
+                <option data-fields='<?= json_encode( $option_value ) ?>'
+                        value="<?= $value ?>" <?php selected( $value, $attr_value ); ?> >
+                    <?= $value ?>
+                </option>
+
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <?php
 }
 
 /**
@@ -587,31 +646,74 @@ function renderGoogleAnalyticsActionInput( &$event, $key ) {
  * @param string      $key
  */
 function renderGoogleAnalyticsV4ActionInput( &$event, $key ) {
-    renderGroupSelectInput( $event, $key, $event->GAEvents, false );
+    $ga_events = PixelYourSite\PYS_Event_Definitions::get_ga_events();
+    renderGroupSelectInput( $event, $key, $ga_events, false );
 }
 /**
+ * Render Pinterest event type input
+ * Uses Events Registry for event definitions
+ *
  * @param CustomEvent $event
  * @param string      $key
  */
 function renderPinterestEventTypeInput( &$event, $key ) {
-	
-	$options = array(
-		'pagevisit'    => 'PageVisit',
-		'viewcategory' => 'ViewCategory',
-		'search'       => 'Search',
-		'addtocart'    => 'AddToCart',
-		'checkout'     => 'Checkout',
-		'watchvideo'   => 'WatchVideo',
-		'signup'       => 'Signup',
-		'lead'         => 'Lead',
-		'custom'       => 'Custom',
-        'partner_defined'  => 'Partner Defined',
-		'disabled'     => '',
+    $pinterest_events = PixelYourSite\PYS_Event_Definitions::get_pinterest_events();
 
-	);
-	
-	renderSelectInput( $event, $key, $options );
-	
+    // Ensure CustomEvent is included for backward compatibility
+    if ( !isset( $pinterest_events['custom'] ) ) {
+        $pinterest_events['Custom'] = [];
+    }
+
+    $attr_name = "pys[event][$key]";
+    $attr_id = 'pys_event_' . $key;
+    $attr_value = esc_attr( $event->$key );
+
+    ?>
+    <div class="select-standard-wrap">
+        <select id="<?php echo esc_attr( $attr_id ); ?>" name="<?php echo esc_attr( $attr_name ); ?>" autocomplete="off"
+                class="select-standard">
+            <?php foreach ( $pinterest_events as $option_key => $option_value ) :
+                $value = esc_attr( $option_key ); ?>
+
+                <option data-fields='<?= json_encode( $option_value ) ?>'
+                        value="<?= $value ?>" <?php selected( $value, $attr_value ); ?> >
+                    <?= $value ?>
+                </option>
+
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <?php
+}
+
+/**
+ * Render Bing event type input
+ * Uses Events Registry for event definitions
+ *
+ * @param CustomEvent $event
+ * @param string $key
+ */
+function renderBingEventTypeInput( &$event, $key ) {
+    // Get Bing events from centralized Event Definitions class
+    $bing_events = PixelYourSite\PYS_Event_Definitions::get_bing_events();
+
+    $attr_name = "pys[event][$key]";
+    $attr_id = 'pys_event_' . $key;
+    $attr_value = esc_attr( $event->$key );
+
+    ?>
+    <select class="input-standard" id="<?php echo esc_attr( $attr_id ); ?>" name="<?php echo esc_attr( $attr_name ); ?>" autocomplete="off">
+        <?php foreach ( $bing_events as $option_key => $option_value ) :
+            $value = esc_attr( $option_key ); ?>
+
+            <option data-fields='<?= json_encode( $option_value ) ?>'
+                    value="<?= $value ?>" <?php selected( $value, $attr_value ); ?> >
+                <?= $value ?>
+            </option>
+
+        <?php endforeach; ?>
+    </select>
+    <?php
 }
 
 /**
@@ -644,7 +746,7 @@ function renderGTMParamInput( $key, $val ) {
 
     $attr_name = "pys[event][gtm_params][$key]";
     $attr_id = 'pys_event_gtm_' . $key;
-    $attr_value = $val;
+    $attr_value = $val['value'] ?? $val;
 
     ?>
 
@@ -662,5 +764,6 @@ function renderGTMParamInput( $key, $val ) {
  * @param string      $key
  */
 function renderGTMActionInput( &$event, $key ) {
-    renderGroupSelectInput( $event, $key, $event->GAEvents, false,'action_gtm' );
+    $ga_events = PixelYourSite\PYS_Event_Definitions::get_ga_events();
+    renderGroupSelectInput( $event, $key, $ga_events, false,'action_gtm' );
 }

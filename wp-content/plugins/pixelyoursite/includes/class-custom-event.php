@@ -12,33 +12,29 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @property int    post_id
  * @property string title
  * @property bool   enabled
- *
  * @property int    delay
  * @property array  triggers
  * @property string trigger_type
- *
  * @property bool   facebook_enabled
  * @property string facebook_event_type
  * @property string facebook_custom_event_type
  * @property bool   facebook_params_enabled
  * @property array  facebook_params
  * @property array  facebook_custom_params
- *
  * @property bool   pinterest_enabled
  * @property string pinterest_event_type
  * @property string pinterest_custom_event_type
  * @property bool   pinterest_params_enabled
+ * @property array  pinterest_params
  * @property array  pinterest_custom_params
  * @property array  ga_custom_params
  * @property array  ga_params
- *
  * @property bool   ga_enabled
  * @property string ga_event_action
  * @property string ga_custom_event_action
  * @property string ga_event_category
  * @property string ga_event_label
  * @property string ga_event_value
- *
  * @property bool ga_ads_enabled
  * @property string ga_ads_pixel_id
  * @property string ga_ads_event_action
@@ -48,7 +44,6 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @property string ga_ads_version
  * @property string ga_ads_event_category
  * @property string ga_ads_event_label
- *
  * @property bool gtm_enabled
  * @property string gtm_pixel_id
  * @property string gtm_event_action
@@ -65,10 +60,27 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @property string gtm_custom_object_name
  *
  * @property bool   bing_enabled
- * @property string bing_event_action
- * @property string bing_event_category
- * @property string bing_event_label
- * @property string bing_event_value
+ * @property string bing_pixel_id
+ * @property string bing_event_type
+ * @property string bing_custom_event_type
+ * @property bool   bing_params_enabled
+ * @property array  bing_params
+ * @property bool reddit_enabled
+ * @property string reddit_event_action
+ * @property bool reddit_track_single_woo_data
+ * @property bool reddit_track_cart_woo_data
+ * @property string reddit_pixel_id
+ * @property string reddit_event_type
+ * @property bool reddit_params_enabled
+ *
+ * @property bool   openai_enabled
+ * @property string openai_pixel_id
+ * @property string openai_event_type
+ * @property string openai_custom_event_type
+ * @property bool   openai_params_enabled
+ * @property array  openai_params
+ * @property bool   openai_track_single_woo_data
+ * @property bool   openai_track_cart_woo_data
  */
 class CustomEvent {
 
@@ -78,86 +90,38 @@ class CustomEvent {
 
 	private $enabled = true;
 
-    public $GAEvents = array(
-        "" => array("CustomEvent"=>array()),
-        "All Properties"    => array(
-            "earn_virtual_currency" => array("virtual_currency_name","value"),
-            "join_group" => array("group_id"),
-            "login" => array("method"),
-            "purchase" => array("transaction_id",'value','currency','tax','shipping','items','coupon'),
-            "refund" => array("transaction_id",'value','currency','tax','shipping','items'),
-            "search" => array("search_term"),
-            "select_content" => array("content_type",'item_id'),
-            "share" => array("content_type",'item_id'),
-            "sign_up" => array("method"),
-            "spend_virtual_currency" => array("item_name",'virtual_currency_name','value'),
-            "tutorial_begin" => array(),
-            "tutorial_complete" => array(),
-        ),
-        "Retail/Ecommerce"  => array(
-            'add_payment_info'  => array('coupon','currency','items','payment_type','value'),
-            'add_shipping_info' => array('coupon','currency','items','shipping_tier','value'),
-            'add_to_cart'  => array('currency', 'items', 'value'),
-            'add_to_wishlist'  => array('currency', 'items', 'value'),
-            'begin_checkout'  => array('coupon','currency', 'items', 'value'),
-            'generate_lead'  => array('value', 'currency'),
-            'purchase'  => array('affiliation', 'coupon', 'currency', 'items', 'transaction_id', 'shipping', 'tax', 'value'),
-            'refund'  => array('affiliation', 'coupon', 'currency', 'items', 'transaction_id', 'shipping', 'tax', 'value'),
-            'remove_from_cart'  => array('currency', 'items', 'value'),
-            'select_item'  => array('items', 'item_list_name', 'item_list_id'),
-            'select_promotion'  => array('items', 'promotion_id', 'promotion_name', 'creative_name', 'creative_slot', 'location_id'),
-            'view_cart'  => array('currency', 'items', 'value'),
-            'view_item'  => array('currency', 'items', 'value'),
-            'view_item_list'  => array('items', 'item_list_name', 'item_list_id'),
-            'view_promotion'  => array('items', 'promotion_id', 'promotion_name', 'creative_name', 'creative_slot', 'location_id')
-        ),
-        "Jobs, Education, Local Deals, Real Estate"  => array(
-            'add_payment_info'  =>  array("coupon", 'currency', 'items', 'payment_type', 'value'),
-            'add_shipping_info'  =>  array('coupon', 'currency', 'items', 'shipping_tier', 'value'),
-            'add_to_cart'  =>  array('currency', 'items', 'value'),
-            'add_to_wishlist'  =>  array('currency', 'items', 'value'),
-            'begin_checkout'  =>  array('coupon','currency', 'items', 'value'),
-            'purchase'  =>  array('affiliation', 'coupon', 'currency', 'items', 'transaction_id', 'shipping', 'tax', 'value'),
-            'refund'  =>  array('affiliation', 'coupon', 'currency', 'items', 'transaction_id', 'shipping', 'tax', 'value'),
-            'remove_from_cart'  =>  array('currency', 'items', 'value'),
-            'select_item'  =>  array('items', 'item_list_name', 'item_list_id'),
-            'select_promotion'  =>  array('items', 'promotion_id', 'promotion_name', 'creative_name', 'creative_slot', 'location_id'),
-            'view_cart'  =>  array('currency', 'items', 'value'),
-            'view_item'  =>  array('currency', 'items', 'value'),
-            'view_item_list'  =>  array('items', 'item_list_name', 'item_list_id'),
-            'view_promotion'  =>  array('items', 'promotion_id', 'promotion_name', 'creative_name', 'creative_slot', 'location_id')
-        ),
-        "Travel (Hotel/Air)"  => array(
-            'add_payment_info'  =>  array("coupon", 'currency', 'items', 'payment_type', 'value'),
-            'add_shipping_info'  =>  array('coupon', 'currency', 'items', 'shipping_tier', 'value'),
-            'add_to_cart'  =>  array('currency', 'items', 'value'),
-            'add_to_wishlist'  =>  array('currency', 'items', 'value'),
-            'begin_checkout'  =>  array('coupon','currency', 'items', 'value'),
-            'generate_lead' => array('value', 'currency'),
-            'purchase' => array('affiliation', 'coupon', 'currency', 'items', 'transaction_id', 'shipping', 'tax', 'value'),
-            'refund' => array('affiliation', 'coupon', 'currency', 'items', 'transaction_id', 'shipping', 'tax', 'value'),
-            'remove_from_cart'  =>  array('currency', 'items', 'value'),
-            'select_item'  =>  array('items', 'item_list_name', 'item_list_id'),
-            'select_promotion'  =>  array('items', 'promotion_id', 'promotion_name', 'creative_name', 'creative_slot', 'location_id'),
-            'view_cart'  =>  array('currency', 'items', 'value'),
-            'view_item'  =>  array('currency', 'items', 'value'),
-            'view_item_list'  =>  array('items', 'item_list_name', 'item_list_id'),
-            'view_promotion'  =>  array('items', 'promotion_id', 'promotion_name', 'creative_name', 'creative_slot', 'location_id')
-        ),
-        "Games" => array(
-            'earn_virtual_currency'  => array('virtual_currency_name', 'value'),
-            'join_group'  => array('group_id'),
-            'level_end'  => array('level_name', 'success'),
-            'level_start'  => array('level_name'),
-            'level_up'  => array('character', 'level'),
-            'post_score'  => array('level', 'character', 'score'),
-            'select_content'  => array('content_type', 'item_id'),
-            'spend_virtual_currency'  => array('item_name', 'virtual_currency_name', 'value'),
-            'tutorial_begin'  => array(),
-            'tutorial_complete'  => array(),
-            'unlock_achievement'  => array('achievement_id'),
-        )
-    );
+    public static $redditEvents = [
+        'ViewContent'   => [],
+        'Search'        => [],
+        'AddToCart'     => [
+            [ 'type' => 'input', 'label' => 'itemCount', 'name' => 'pys[event][reddit_params][itemCount]' ],
+            [ 'type' => 'input', 'label' => 'value', 'name' => 'pys[event][reddit_params][value]' ],
+            [ 'type' => 'input', 'label' => 'currency', 'name' => 'pys[event][reddit_params][currency]' ],
+        ],
+        'AddToWishlist' => [
+            [ 'type' => 'input', 'label' => 'itemCount', 'name' => 'pys[event][reddit_params][itemCount]' ],
+            [ 'type' => 'input', 'label' => 'value', 'name' => 'pys[event][reddit_params][value]' ],
+            [ 'type' => 'input', 'label' => 'currency', 'name' => 'pys[event][reddit_params][currency]' ],
+        ],
+        'Purchase'      => [
+            [ 'type' => 'input', 'label' => 'itemCount', 'name' => 'pys[event][reddit_params][itemCount]' ],
+            [ 'type' => 'input', 'label' => 'value', 'name' => 'pys[event][reddit_params][value]' ],
+            [ 'type' => 'input', 'label' => 'currency', 'name' => 'pys[event][reddit_params][currency]' ],
+        ],
+        'Lead'          => [
+            [ 'type' => 'input', 'label' => 'value', 'name' => 'pys[event][reddit_params][value]' ],
+            [ 'type' => 'input', 'label' => 'currency', 'name' => 'pys[event][reddit_params][currency]' ],
+        ],
+        'SignUp'        => [
+            [ 'type' => 'input', 'label' => 'value', 'name' => 'pys[event][reddit_params][value]' ],
+            [ 'type' => 'input', 'label' => 'currency', 'name' => 'pys[event][reddit_params][currency]' ],
+        ],
+        'Custom'        => [
+            [ 'type' => 'input', 'label' => 'itemCount', 'name' => 'pys[event][reddit_params][itemCount]' ],
+            [ 'type' => 'input', 'label' => 'value', 'name' => 'pys[event][reddit_params][value]' ],
+            [ 'type' => 'input', 'label' => 'currency', 'name' => 'pys[event][reddit_params][currency]' ],
+        ],
+    ];
     private $ecommerceParamArray = array(
         'currency',
         'value',
@@ -206,13 +170,14 @@ class CustomEvent {
 		'facebook_custom_params'     => array(),
 		
 		'pinterest_enabled'           => false,
-		'pinterest_event_type'        => 'ViewContent',
+		'pinterest_event_type'        => 'pagevisit',
 		'pinterest_custom_event_type' => null,
 		'pinterest_params_enabled'    => false,
+        'pinterest_params'            => array(),
 		'pinterest_custom_params'     => array(),
 		
 		'ga_enabled'             => false,
-		'ga_event_action'        => '_custom',
+		'ga_event_action'        => 'conversion',
 		'ga_custom_event_action' => null,
 		'ga_event_category'      => null,
 		'ga_event_label'         => null,
@@ -224,7 +189,7 @@ class CustomEvent {
         'ga_custom_params_enabled'    => false,
 
         'ga_ads_enabled'             => false,
-        'ga_ads_event_action'        => '_custom',
+        'ga_ads_event_action'        => 'conversion',
         'ga_ads_custom_event_action' => null,
         //ver 4
         'ga_ads_params'             => array(),
@@ -233,7 +198,7 @@ class CustomEvent {
 
         'gtm_enabled'             => false,
         'gtm_pixel_id'            => array(),
-        'gtm_event_action'        => '_custom',
+        'gtm_event_action'        => 'conversion',
         'gtm_custom_event_action' => null,
         //ver 4
         'gtm_params'             => array(),
@@ -246,10 +211,27 @@ class CustomEvent {
         'gtm_custom_object_name' => null,
 
         'bing_enabled' => false,
-        'bing_event_action' => null,
-        'bing_event_category' => null,
-        'bing_event_label' => null,
-        'bing_event_value' => null,
+        'bing_pixel_id' => 'all',
+        'bing_event_type' => 'PageVisit',
+        'bing_custom_event_type' => null,
+        'bing_params_enabled' => false,
+        'bing_params' => array(),
+        'bing_custom_params' => array(),
+
+		'reddit_pixel_id'              => 'all',
+		'reddit_event_type'            => 'ViewContent',
+		'reddit_enabled'               => false,
+		'reddit_track_single_woo_data' => false,
+		'reddit_track_cart_woo_data'   => false,
+
+		'openai_enabled'               => false,
+		'openai_pixel_id'              => 'all',
+		'openai_event_type'            => 'contents_viewed',
+		'openai_custom_event_type'     => null,
+		'openai_params_enabled'        => false,
+		'openai_params'                => array(),
+		'openai_track_single_woo_data' => false,
+		'openai_track_cart_woo_data'   => false,
 
         'conditions_enabled' => false,
         'conditions_logic' => 'AND'
@@ -472,6 +454,8 @@ class CustomEvent {
                     case 'user_role':
                         $condition->updateParam('user_role', $data_condition[ 'user_role' ]);
                         break;
+                    case 'product_id':
+                        continue 2;
                 }
 
                 $condition->updateParam( 'index', $condition_index );
@@ -481,6 +465,11 @@ class CustomEvent {
                 break; // Stop after processing the first condition
             }
         }
+
+		/**
+		 * REDDIT
+		 */
+		$this->updateRedditParams( $args );
 
 		/**
 		 * FACEBOOK
@@ -588,60 +577,56 @@ class CustomEvent {
 
 		}
 
-		/**
-		 * PINTEREST
-		 */
-		
-		$pinterest_event_types = array(
-			'pagevisit',
-			'viewcategory',
-			'search',
-			'addtocart',
-			'checkout',
-			'watchvideo',
-			'signup',
-			'lead',
-			'custom',
-			'partner_defined',
-		);
-		
-		// enabled
-		$this->data['pinterest_enabled'] = isset( $args['pinterest_enabled'] ) && $args['pinterest_enabled'] ? true
-			: false;
-		
-		// event type
-		$this->data['pinterest_event_type'] = isset( $args['pinterest_event_type'] ) && in_array( $args['pinterest_event_type'],
-			$pinterest_event_types )
-			? sanitize_text_field( $args['pinterest_event_type'] )
-			: 'pagevisit';
-		
-		// custom event type
-        $this->data[ 'pinterest_custom_event_type' ] = $this->pinterest_event_type == 'partner_defined' && !empty( $args[ 'pinterest_custom_event_type' ] ) ? sanitizeKey( $args[ 'pinterest_custom_event_type' ] ) : null;
-		
-		// params enabled
-		$this->data['pinterest_params_enabled'] = isset( $args['pinterest_params_enabled'] ) && $args['pinterest_params_enabled']
-			? true : false;
-		
-		// reset old custom params
-		$this->data['pinterest_custom_params'] = array();
-		
-		// custom params
-		if ( $this->pinterest_params_enabled && isset( $args['pinterest_custom_params'] ) ) {
-			
-			foreach ( $args['pinterest_custom_params'] as $custom_param ) {
-				
-				if ( ! empty( $custom_param['name'] ) && ! empty( $custom_param['value'] ) ) {
-					
-					$this->data['pinterest_custom_params'][] = array(
-						'name'  => sanitize_text_field( $custom_param['name'] ),
-						'value' => sanitize_text_field( $custom_param['value'] ),
-					);
-					
-				}
-				
-			}
-			
-		}
+        /**
+         * PINTEREST
+         */
+
+        $pinterest_events = PYS_Event_Definitions::get_pinterest_events();
+        $pinterest_event_types = array_keys( $pinterest_events );
+
+        // enabled
+        $this->data[ 'pinterest_enabled' ] = isset( $args[ 'pinterest_enabled' ] ) && $args[ 'pinterest_enabled' ] ? true : false;
+
+        // event type
+        $this->data[ 'pinterest_event_type' ] = isset( $args[ 'pinterest_event_type' ] ) && in_array( $args[ 'pinterest_event_type' ], $pinterest_event_types ) ? sanitize_text_field( $args[ 'pinterest_event_type' ] ) : 'pagevisit';
+
+        // custom event type
+        $this->data[ 'pinterest_custom_event_type' ] = ( $this->pinterest_event_type == 'partner_defined' || $this->pinterest_event_type == 'custom' ) && !empty( $args[ 'pinterest_custom_event_type' ] ) ? sanitizeKey( $args[ 'pinterest_custom_event_type' ] ) : null;
+
+        // params enabled
+        $this->data[ 'pinterest_params_enabled' ] = isset( $args[ 'pinterest_params_enabled' ] ) && $args[ 'pinterest_params_enabled' ] ? true : false;
+
+        // pinterest_params - structured params like Facebook/TikTok
+        $this->data[ 'pinterest_params' ] = array();
+        if ( isset( $args[ 'pinterest_params' ] ) && is_array( $args[ 'pinterest_params' ] ) ) {
+            foreach ( $args[ 'pinterest_params' ] as $param_key => $param_value ) {
+                $this->data[ 'pinterest_params' ][ sanitize_text_field( $param_key ) ] = sanitize_text_field( $param_value );
+            }
+        }
+
+        $this->data['pinterest_track_single_woo_data'] = isset( $args[ 'pinterest_track_single_woo_data' ] ) && $args[ 'pinterest_track_single_woo_data' ] ? true : false;
+        $this->data['pinterest_track_cart_woo_data'] = isset( $args[ 'pinterest_track_cart_woo_data' ] ) && $args[ 'pinterest_track_cart_woo_data' ] ? true : false;
+
+        // reset old custom params
+        $this->data[ 'pinterest_custom_params' ] = array();
+
+        // custom params (legacy support)
+        if ( $this->pinterest_params_enabled && isset( $args[ 'pinterest_custom_params' ] ) ) {
+
+            foreach ( $args[ 'pinterest_custom_params' ] as $custom_param ) {
+
+                if ( !empty( $custom_param[ 'name' ] ) && !empty( $custom_param[ 'value' ] ) ) {
+
+                    $this->data[ 'pinterest_custom_params' ][] = array(
+                        'name'  => sanitize_text_field( $custom_param[ 'name' ] ),
+                        'value' => sanitize_text_field( $custom_param[ 'value' ] ),
+                    );
+
+                }
+
+            }
+
+        }
 
 		/**
 		 * GOOGLE ANALYTICS
@@ -653,15 +638,200 @@ class CustomEvent {
          * BING
          */
 
-        $this->data['bing_enabled'] = isset($args['bing_enabled']) && $args['bing_enabled'] ? true : false;
-        $this->data['bing_event_action'] = !empty($args['bing_event_action']) ? sanitize_text_field($args['bing_event_action']) : null;
-        $this->data['bing_event_category'] = !empty($args['bing_event_category']) ? sanitize_text_field($args['bing_event_category']) : null;
-        $this->data['bing_event_label'] = !empty($args['bing_event_label']) ? sanitize_text_field($args['bing_event_label']) : null;
-        $this->data['bing_event_value'] = !empty($args['bing_event_value']) ? sanitize_text_field($args['bing_event_value']) : null;
+        $bing_events = PYS_Event_Definitions::get_bing_events();
+        $bing_event_types = array_keys( $bing_events );
+
+        // enabled
+        $this->data[ 'bing_enabled' ] = isset( $args[ 'bing_enabled' ] ) && $args[ 'bing_enabled' ] ? true : false;
+
+        // pixel id
+        // getPixelIDs() (present on the Free CORE Bing class too) instead of
+        // getAllPixels() — the core Bing stub lacks getAllPixels(), so calling it fatals
+        // whenever that class is the loaded PixelYourSite\Bing (same collision as Reddit).
+        $bing_pixels = function_exists( '\\PixelYourSite\\Bing' ) ? (array) Bing()->getPixelIDs() : array();
+        $this->data[ 'bing_pixel_id' ] = !empty( $args[ 'bing_pixel_id' ] ) && in_array( $args[ 'bing_pixel_id' ], $bing_pixels ) ? $args[ 'bing_pixel_id' ] : 'all';
+
+        // event type
+        $this->data[ 'bing_event_type' ] = isset( $args[ 'bing_event_type' ] ) && in_array( $args[ 'bing_event_type' ], $bing_event_types ) ? sanitize_text_field( $args[ 'bing_event_type' ] ) : 'PageVisit';
+
+        // custom event type
+		$this->data[ 'bing_custom_event_type' ] = ($this->bing_event_type === 'custom' || $this->bing_event_type === 'Custom') && !empty( $args[ 'bing_custom_event_type' ] ) ? sanitizeKey( $args[ 'bing_custom_event_type' ] ) : null;
+
+		// params enabled
+        $this->data[ 'bing_params_enabled' ] = isset( $args[ 'bing_params_enabled' ] ) && $args[ 'bing_params_enabled' ] ? true : false;
+
+        // bing_params - standard params, stored flat (name => scalar value) in Free.
+        // The addon view may post a {value, selector, dynamic} object per param
+        // (selector/dynamic are Pro); take the value so the flat store is not blanked.
+        $this->data[ 'bing_params' ] = array();
+        if ( isset( $args[ 'bing_params' ] ) && is_array( $args[ 'bing_params' ] ) ) {
+            foreach ( $args[ 'bing_params' ] as $param_key => $param_value ) {
+                $val = is_array( $param_value ) ? ( $param_value[ 'value' ] ?? '' ) : $param_value;
+                $this->data[ 'bing_params' ][ sanitize_text_field( $param_key ) ] = sanitize_text_field( $val );
+            }
+        }
+
+        // reset old custom params
+        $this->data[ 'bing_custom_params' ] = array();
+
+        // custom params (plain name/value in Free; selector/dynamic are Pro)
+        if ( $this->bing_params_enabled && isset( $args[ 'bing_custom_params' ] ) && is_array( $args[ 'bing_custom_params' ] ) ) {
+            foreach ( $args[ 'bing_custom_params' ] as $custom_param ) {
+                if ( is_array( $custom_param ) && !empty( $custom_param[ 'name' ] ) && !empty( $custom_param[ 'value' ] ) ) {
+                    $this->data[ 'bing_custom_params' ][] = array(
+                        'name'  => sanitize_text_field( $custom_param[ 'name' ] ),
+                        'value' => sanitize_text_field( $custom_param[ 'value' ] ),
+                    );
+                }
+            }
+        }
+
+		/**
+		 * OPENAI
+		 */
+
+		$this->updateOpenAI( $args );
 
         update_post_meta( $this->post_id, '_pys_event_data', $this->data );
         update_post_meta( $this->post_id, '_pys_event_conditions', addslashes( serialize( $this->conditions ) ) );
         update_post_meta( $this->post_id, '_pys_event_triggers', addslashes( serialize( $this->triggers ) ) );
+	}
+
+	/**
+	 * Read the OpenAI half of a submitted custom event.
+	 *
+	 * @param array $args
+	 * @return void
+	 */
+	private function updateOpenAI( $args ) {
+
+		$event_types = array_keys( PYS_Event_Definitions::get_openai_events() );
+
+		// enabled
+		$this->data[ 'openai_enabled' ] = isset( $args[ 'openai_enabled' ] ) && $args[ 'openai_enabled' ] ? true : false;
+
+		// pixel id -- one pixel in Free, so a scalar with the `all` fallback
+		$pixels = function_exists( '\\PixelYourSite\\OpenAI' ) ? (array) OpenAI()->getPixelIDs() : array();
+
+		$this->data[ 'openai_pixel_id' ] = ! empty( $args[ 'openai_pixel_id' ] )
+			&& in_array( $args[ 'openai_pixel_id' ], $pixels, true )
+				? sanitize_text_field( $args[ 'openai_pixel_id' ] ) : 'all';
+
+		// event type
+		$this->data[ 'openai_event_type' ] = isset( $args[ 'openai_event_type' ] )
+			&& $args[ 'openai_event_type' ] !== ''
+			&& in_array( $args[ 'openai_event_type' ], $event_types, true )
+				? sanitize_text_field( $args[ 'openai_event_type' ] ) : 'contents_viewed';
+
+		// the name of a custom event, which only `custom` has. OpenAI judges the
+		// name itself, so the generic key sanitiser is not enough: it would strip
+		// the dashes OpenAI allows and pass names it refuses.
+		$this->data[ 'openai_custom_event_type' ] = $this->openai_event_type === 'custom'
+			? self::sanitizeOpenAICustomEventName( $args[ 'openai_custom_event_type' ] ?? '' )
+			: null;
+
+		// params
+		$this->data[ 'openai_params_enabled' ] = isset( $args[ 'openai_params_enabled' ] ) && $args[ 'openai_params_enabled' ] ? true : false;
+
+		$this->data[ 'openai_track_single_woo_data' ] = isset( $args[ 'openai_track_single_woo_data' ] ) && $args[ 'openai_track_single_woo_data' ] ? true : false;
+		$this->data[ 'openai_track_cart_woo_data' ]   = isset( $args[ 'openai_track_cart_woo_data' ] ) && $args[ 'openai_track_cart_woo_data' ] ? true : false;
+
+		$this->data[ 'openai_params' ] = array();
+
+		if ( $this->openai_params_enabled && isset( $args[ 'openai_params' ] ) && is_array( $args[ 'openai_params' ] ) ) {
+
+			// Only the fields of the chosen event's shape: anything else would
+			// take the event down with it.
+			foreach ( self::getOpenAIAllowedParams( $this->openai_event_type ) as $allowed ) {
+
+				if ( ! isset( $args[ 'openai_params' ][ $allowed ] ) ) {
+					continue;
+				}
+
+				$param = $args[ 'openai_params' ][ $allowed ];
+
+				// A Pro-shaped payload posts { value, selector, dynamic }; take
+				// the value so the flat store is not blanked.
+				$value = is_array( $param ) ? ( $param[ 'value' ] ?? '' ) : $param;
+				$value = sanitize_text_field( $value );
+
+				// Currency is an ISO 4217 code and nothing else: the endpoint
+				// answers `400 invalid_field_value` to anything outside that
+				// standard -- BTC included, three letters and all -- and that
+				// refusal fails the whole event.
+				if ( $allowed === 'currency' ) {
+					$code  = strtoupper( trim( $value ) );
+					$value = OpenAI\Helpers\pys_openai_is_valid_currency( $code ) ? $code : '';
+				}
+
+				$this->data[ 'openai_params' ][ $allowed ] = $value;
+			}
+		}
+	}
+
+	/**
+	 * The parameters an OpenAI event type may carry, by label.
+	 *
+	 * @param string $event_type
+	 * @return string[]
+	 */
+	public static function getOpenAIAllowedParams( $event_type ) {
+
+		$events = PYS_Event_Definitions::get_openai_events();
+
+		if ( ! isset( $events[ $event_type ] ) ) {
+			return array();
+		}
+
+		$labels = array();
+
+		foreach ( $events[ $event_type ] as $field ) {
+			if ( ! empty( $field[ 'label' ] ) ) {
+				$labels[] = $field[ 'label' ];
+			}
+		}
+
+		return $labels;
+	}
+
+	/**
+	 * The `data` shape an OpenAI event type takes.
+	 *
+	 * @param string $event_type
+	 * @return string One of contents, customer_action, plan_enrollment, custom.
+	 */
+	public static function getOpenAIDataType( $event_type ) {
+
+		$shapes = PYS_Event_Definitions::get_openai_shapes();
+
+		return $shapes[ $event_type ][ 'data_type' ] ?? 'contents';
+	}
+
+	/**
+	 * A name OpenAI will accept for a custom event, or null.
+	 *
+	 * 1-64 characters of latin letters, digits, `_` and `-`, starting and ending
+	 * with a letter or a digit; and never one of OpenAI's own standard event
+	 * names, which its API refuses outright.
+	 *
+	 * @param string $name
+	 * @return string|null
+	 */
+	public static function sanitizeOpenAICustomEventName( $name ) {
+
+		$name = trim( sanitize_text_field( (string) $name ) );
+
+		if ( $name === '' || preg_match( '/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}[A-Za-z0-9]$|^[A-Za-z0-9]$/', $name ) !== 1 ) {
+			return null;
+		}
+
+		$standard = array_keys( PYS_Event_Definitions::get_openai_shapes() );
+
+		if ( in_array( $name, $standard, true ) ) {
+			return null;
+		}
+
+		return $name;
 	}
 
 	public function enable() {
@@ -757,20 +927,35 @@ class CustomEvent {
 	public function isPinterestEnabled() {
 		return (bool) $this->pinterest_enabled;
 	}
-	
-	public function getPinterestEventType() {
-		return $this->pinterest_event_type == 'partner_defined'
-			? $this->pinterest_custom_event_type
-			: $this->pinterest_event_type;
-	}
-	
-	public function isPinterestParamsEnabled() {
-		return (bool) $this->pinterest_params_enabled;
-	}
-	
-	public function getPinterestCustomParams() {
-		return $this->pinterest_params_enabled ? $this->pinterest_custom_params : array();
-	}
+
+    public function isRedditEnabled() {
+        return (bool) $this->reddit_enabled;
+    }
+
+    public function getPinterestEventType() {
+        // Both 'partner_defined' and 'custom' are custom-name types — read the
+        // magic prop into a local first (a bare empty($this->prop) on the __get
+        // magic property always reads empty without __isset).
+        $custom_name = $this->pinterest_custom_event_type;
+
+        if ( ( $this->pinterest_event_type == 'partner_defined' || $this->pinterest_event_type == 'custom' )
+            && ! empty( $custom_name ) ) {
+            return $custom_name;
+        }
+        return $this->pinterest_event_type;
+    }
+
+    public function isPinterestParamsEnabled() {
+        return (bool) $this->pinterest_params_enabled;
+    }
+
+    public function getPinterestParams() {
+        return $this->pinterest_params_enabled ? $this->pinterest_params : array();
+    }
+
+    public function getPinterestCustomParams() {
+        return $this->pinterest_params_enabled ? $this->pinterest_custom_params : array();
+    }
 
 	public function isGoogleAnalyticsEnabled() {
 		return (bool) $this->ga_enabled;
@@ -811,8 +996,64 @@ class CustomEvent {
     public function getMergedAction(){
         return $this->ga_ads_event_action == '_custom' || $this->ga_ads_event_action ==  'CustomEvent' ? $this->ga_ads_custom_event_action : $this->ga_ads_event_action;
     }
+	/**
+	 * Is this event configured to fire to OpenAI?
+	 *
+	 * @return bool
+	 */
+	public function isOpenAIEnabled() {
+		return (bool) $this->openai_enabled;
+	}
+
+	/**
+	 * The event type as the module needs it: for `custom` that is the name the
+	 * user gave, because the wire carries `type: custom` plus that name.
+	 *
+	 * @return string|null
+	 */
+	public function getOpenAIEventType() {
+		return $this->openai_event_type === 'custom'
+			? $this->openai_custom_event_type
+			: $this->openai_event_type;
+	}
+
+	/**
+	 * The standard params, or nothing when the section is switched off.
+	 *
+	 * @return array
+	 */
+	public function getOpenAIParams() {
+		return $this->openai_params_enabled ? (array) $this->openai_params : array();
+	}
+
     public function isBingEnabled() {
         return (bool) $this->bing_enabled;
+    }
+
+    public function getBingEventType() {
+        // Stored bing custom type is 'Custom' (capital — the only definitions key);
+        // the old lowercase-only check meant custom NAMES never fired. Read the
+        // magic prop into a local first (empty() on a __get prop without __isset
+        // always reads empty).
+        $custom_name = $this->bing_custom_event_type;
+
+        if ( ( $this->bing_event_type === 'custom' || $this->bing_event_type === 'Custom' )
+            && ! empty( $custom_name ) ) {
+            return $custom_name;
+        }
+        return $this->bing_event_type;
+    }
+
+    public function isBingParamsEnabled() {
+        return (bool) $this->bing_params_enabled;
+    }
+
+    public function getBingParams() {
+        return $this->bing_params_enabled ? $this->bing_params : array();
+    }
+
+    public function getBingCustomParams() {
+        return $this->bing_params_enabled ? $this->bing_custom_params : array();
     }
     public function isGaV4() {
         $all = GA()->getPixelIDs();
@@ -880,23 +1121,28 @@ class CustomEvent {
                     ? sanitize_text_field( $args['ga_ads_event_action'] )
                     : 'view_item';
 
-                $this->data['ga_ads_custom_event_action'] = $this->ga_ads_event_action == '_custom' || $this->ga_ads_event_action == 'CustomEvent' && !empty( $args['ga_ads_custom_event_action'] )
+                $this->data['ga_ads_custom_event_action'] = ($this->ga_ads_event_action == '_custom' || $this->ga_ads_event_action == 'CustomEvent') && !empty( $args['ga_ads_custom_event_action'] )
                     ? sanitizeKey( $args['ga_ads_custom_event_action'] )
                     : null;
 
                 $this->data['ga_ads_params'] = array();
 
 
-                foreach ($this->GAEvents as $group) {
+                foreach ($this->getGAEvents() as $group) {
                     foreach ($group as $name => $fields) {
                         if($name == $this->data['ga_ads_event_action']) {
                             foreach ($fields as $field) {
-                                $this->data['ga_ads_params'][$field] = isset($args['ga_ads_params'][$field]) ? $args['ga_ads_params'][$field] : "";
+                                $fieldName = is_array($field) && isset($field['name']) ? $field['name'] : $field;
+                                $this->data['ga_ads_params'][$fieldName] = isset($args['ga_ads_params'][$fieldName]) ? $args['ga_ads_params'][$fieldName] : "";
                             }
                             break;
                         }
                     }
                 }
+
+                // Persist the grouped-action category so the group-aware admin select
+                // can display the chosen action (mirrors Pro).
+                $this->data['ga_ads_event_action_group'] = $args['ga_ads_event_action_group'] ?? '';
 
                 if ( isset( $args['ga_ads_params'] ) ) {
                     foreach ($args['ga_ads_params'] as $key => $val) {
@@ -962,11 +1208,12 @@ class CustomEvent {
                 return [];
             }
         $list = array();
-        foreach ($this->GAEvents as $group) {
+        foreach ($this->getGAEvents() as $group) {
             foreach ($group as $name => $fields) {
                 if($name == $this->data['ga_event_action']) {
                     foreach ($fields as $field) {
-                        $list[$field] = "";
+                        $fieldName = is_array($field) && isset($field['name']) ? $field['name'] : $field;
+                        $list[$fieldName] = "";
                     }
                 }
             }
@@ -1101,16 +1348,21 @@ class CustomEvent {
             : null;
         $this->data['gtm_params'] = array();
 
-        foreach ($this->GAEvents as $group) {
+        foreach ($this->getGAEvents() as $group) {
             foreach ($group as $name => $fields) {
                 if($name == $this->data['gtm_event_action']) {
                     foreach ($fields as $field) {
-                        $this->data['gtm_params'][$field] = isset($args['gtm_params'][$field]) ? $args['gtm_params'][$field] : "";
+                        $fieldName = is_array($field) && isset($field['name']) ? $field['name'] : $field;
+                        $this->data['gtm_params'][$fieldName] = isset($args['gtm_params'][$fieldName]) ? $args['gtm_params'][$fieldName] : "";
                     }
                     break;
                 }
             }
         }
+
+        // Persist the grouped-action category so the group-aware admin select
+        // can display the chosen action (mirrors Pro).
+        $this->data['gtm_event_action_group'] = $args['gtm_event_action_group'] ?? '';
 
         if ( isset( $args['gtm_params'] ) ) {
             foreach ($args['gtm_params'] as $key => $val) {
@@ -1163,16 +1415,91 @@ class CustomEvent {
         if($conditions_enabled && !empty($conditions)){
             $conditions_results = [];
             foreach ($conditions as $condition) {
-                $condition_result = $condition->check();
-                $conditions_results[] = $condition_result;
+                /*
+                 * A condition this plugin cannot decide counts as satisfied: never
+                 * block an event over something we did not check. It also keeps us
+                 * closest to Pro, where such a condition is either empty — and an
+                 * empty needle matches everything — or evaluated in the browser.
+                 * See ConditionalEvent::isEvaluable().
+                 */
+                if ( !$condition->isEvaluable() ) {
+                    $conditions_results[] = true;
+                    continue;
+                }
+                // Cast because checkUserRole() can return the array_intersect() result.
+                $conditions_results[] = (bool) $condition->check();
             }
+
             if($conditions_logic === 'AND'){
-                $check = !in_array(false, $conditions_results);
+                $check = !in_array(false, $conditions_results, true);
             }
             else{
-                $check =  in_array(true, $conditions_results);
+                $check =  in_array(true, $conditions_results, true);
             }
         }
         return $check;
+    }
+
+	private function updateRedditParams( $args ) {
+		$reddit_event_types = array_keys( self::$redditEvents );
+
+		$standard_params = [
+			'itemCount',
+			'currency',
+			'value',
+		];
+		// enabled
+		$this->data[ 'reddit_enabled' ] = isset( $args[ 'reddit_enabled' ] ) && $args[ 'reddit_enabled' ];
+
+		//pixel id
+		// Use getPixelIDs() (present on every Reddit class variant) rather than
+		// getAllPixels() — the Free CORE Reddit class (modules/reddit/reddit.php) only
+		// defines getPixelIDs(), so calling getAllPixels() fatals whenever that class is
+		// the loaded PixelYourSite\Reddit (the addon's getAllPixels() just returns
+		// getPixelIDs() anyway). Prevents a fatal on ANY custom-event save.
+		$reddit_pixels = function_exists( '\\PixelYourSite\\Reddit' ) ? (array) Reddit()->getPixelIDs() : array();
+		$this->data[ 'reddit_pixel_id' ] = !empty( $args[ 'reddit_pixel_id' ] )
+		                                   && in_array( $args[ 'reddit_pixel_id' ], $reddit_pixels ) ? $args[ 'reddit_pixel_id' ] : 'all';
+
+		// event type
+		$this->data[ 'reddit_event_type' ] = isset( $args[ 'reddit_event_type' ] )
+		                                     && in_array( $args[ 'reddit_event_type' ], $reddit_event_types ) ? sanitize_text_field( $args[ 'reddit_event_type' ] ) : 'ViewContent';
+
+		// custom event type
+		$this->data[ 'reddit_custom_event_type' ] = $this->reddit_event_type == 'Custom'
+		                                            && !empty( $args[ 'reddit_custom_event_type' ] ) ? sanitizeKey( $args[ 'reddit_custom_event_type' ] ) : null;
+
+		// params enabled
+		$this->data[ 'reddit_params_enabled' ] = isset( $args[ 'reddit_params_enabled' ] )
+		                                         && $args[ 'reddit_params_enabled' ];
+
+		$this->data[ 'reddit_track_single_woo_data' ] = isset( $args[ 'reddit_track_single_woo_data' ] )
+		                                                && $args[ 'reddit_track_single_woo_data' ];
+		$this->data[ 'reddit_track_cart_woo_data' ]   = isset( $args[ 'reddit_track_cart_woo_data' ] )
+		                                                && $args[ 'reddit_track_cart_woo_data' ];
+
+		// params
+		$params = [];
+		if ( $this->reddit_params_enabled && isset( $args[ 'reddit_params' ] ) ) {
+
+			foreach ( $standard_params as $standard ) {
+				$params[ $standard ] = !empty( $args[ 'reddit_params' ][ $standard ] ) ? sanitize_text_field( $args[ 'reddit_params' ][ $standard ] ) : null;
+			}
+		} else {
+			// clear all
+			foreach ( $standard_params as $standard ) {
+				$params[ $standard ] = null;
+			}
+		}
+		$this->data[ 'reddit_params' ] = $params;
+	}
+
+    /**
+     * Get Google Analytics events from centralized Event Definitions class
+     * @deprecated Use PYS_Event_Definitions::get_ga_events() instead
+     * @return array
+     */
+    private function getGAEvents() {
+        return PYS_Event_Definitions::get_ga_events();
     }
 }

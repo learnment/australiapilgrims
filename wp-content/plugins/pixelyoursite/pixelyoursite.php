@@ -4,14 +4,16 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly.
 }
 
-define( 'PYS_FREE_VERSION', '11.1.3' );
-define( 'PYS_FREE_PINTEREST_MIN_VERSION', '6.0.0' );
-define( 'PYS_FREE_BING_MIN_VERSION', '4.0.0' );
+define( 'PYS_FREE_VERSION', '11.4.5' );
+define( 'PYS_FREE_PINTEREST_MIN_VERSION', '6.2.7' );
+define( 'PYS_FREE_BING_MIN_VERSION', '4.2.0' );
+define( 'PYS_FREE_REDDIT_MIN_VERSION', '1.1.0' );
 define( 'PYS_FREE_PATH', untrailingslashit( plugin_dir_path( __FILE__ ) ) );
 define( 'PYS_FREE_URL', untrailingslashit( plugin_dir_url( __FILE__ ) ) );
 define( 'PYS_FREE_PLUGIN_FILE', __FILE__ );
 define( 'PYS_FREE_PLUGIN_BASENAME', plugin_basename( PYS_FREE_PLUGIN_FILE ) );
 define( 'PYS_FREE_GTM_CONTAINERS_PATH', untrailingslashit( plugin_dir_url( __FILE__ ) ) .'/containers_gtm/' );
+define( 'PYS_FREE_LICENSE_NAME', 'PixelYourSite' );
 
 define( 'PYS_FREE_PLUGIN_ICON', PYS_FREE_URL . '/dist/images/pys-logo.svg');
 define( 'PYS_FREE_VIEW_PATH', PYS_FREE_PATH . '/includes/views' );
@@ -23,6 +25,7 @@ define( 'PYS_FREE_VIDEO_TITLE', 'Meta Pixel and API setup - Boost EMQ'  );
 require_once PYS_FREE_PATH.'/vendor/autoload.php';
 require_once PYS_FREE_PATH.'/includes/logger/class-pys-logger.php';
 require_once PYS_FREE_PATH.'/includes/class-event-id-generator.php';
+require_once PYS_FREE_PATH.'/includes/class-event-definitions.php';
 require_once PYS_FREE_PATH.'/includes/functions-common.php';
 require_once PYS_FREE_PATH.'/includes/functions-buttons.php';
 require_once PYS_FREE_PATH.'/includes/functions-admin.php';
@@ -38,12 +41,19 @@ require_once PYS_FREE_PATH.'/includes/events/class-events-custom.php';
 
 require_once PYS_FREE_PATH .'/containers_gtm/container.php';
 require_once PYS_FREE_PATH.'/includes/functions-custom-event.php';
+require_once PYS_FREE_PATH.'/includes/functions-woo-discounts.php';
 require_once PYS_FREE_PATH.'/includes/functions-woo.php';
+require_once PYS_FREE_PATH.'/includes/functions-woo-ids.php';
 require_once PYS_FREE_PATH.'/includes/functions-edd.php';
 require_once PYS_FREE_PATH.'/includes/functions-system-report.php';
 require_once PYS_FREE_PATH.'/includes/functions-license.php';
 require_once PYS_FREE_PATH.'/includes/functions-update-plugin.php';
 require_once PYS_FREE_PATH.'/includes/functions-gdpr.php';
+require_once PYS_FREE_PATH.'/includes/functions-client-ip.php';
+require_once PYS_FREE_PATH.'/includes/functions-event-signals.php';
+require_once PYS_FREE_PATH.'/includes/functions-cookie-domain.php';
+require_once PYS_FREE_PATH.'/includes/functions-fb-cookies.php';
+require_once PYS_FREE_PATH.'/includes/class-param-builder-adapter.php';
 require_once PYS_FREE_PATH.'/includes/functions-migrate.php';
 require_once PYS_FREE_PATH.'/includes/class-fixed-notices.php';
 require_once PYS_FREE_PATH.'/includes/class-optin-notices.php';
@@ -54,6 +64,8 @@ require_once PYS_FREE_PATH.'/includes/class-consent.php';
 
 require_once PYS_FREE_PATH.'/includes/class-events-manager-ajax_hook.php';
 require_once PYS_FREE_PATH.'/includes/class-pys.php';
+require_once PYS_FREE_PATH.'/includes/class-feed-id-check.php';
+\PixelYourSite\FeedIdCheck::init();
 require_once PYS_FREE_PATH.'/includes/class-events-manager.php';
 require_once PYS_FREE_PATH.'/includes/class-custom-event.php';
 require_once PYS_FREE_PATH.'/includes/class-custom-event-factory.php';
@@ -63,11 +75,36 @@ require_once PYS_FREE_PATH.'/includes/events/CustomEventClasses/class-conditiona
 require_once PYS_FREE_PATH.'/modules/facebook/facebook.php';
 require_once PYS_FREE_PATH.'/modules/facebook/facebook-server.php';
 require_once PYS_FREE_PATH.'/modules/facebook/class-facebook-rest-api.php';
+require_once PYS_FREE_PATH.'/includes/class-rest-api-guard.php';
 require_once PYS_FREE_PATH.'/modules/google_analytics/ga.php';
 require_once PYS_FREE_PATH.'/modules/google_tags/gatags.php';
 require_once PYS_FREE_PATH.'/modules/google_gtm/gtm.php';
+require_once PYS_FREE_PATH.'/modules/openai/openai.php';
+require_once PYS_FREE_PATH.'/modules/openai/openai-server.php';
+require_once PYS_FREE_PATH.'/modules/openai/class-openai-rest-api.php';
 require_once PYS_FREE_PATH.'/modules/head_footer/head_footer.php';
 require_once PYS_FREE_PATH.'/includes/enrich/class_enrich_order.php';
+
+// Site Profile export/import feature (core classes; admin/REST/CLI wired later).
+require_once PYS_FREE_PATH.'/includes/export-import/class-site-profile-config.php';
+require_once PYS_FREE_PATH.'/includes/export-import/class-site-profile-guard.php';
+require_once PYS_FREE_PATH.'/includes/export-import/class-site-profile-registry.php';
+require_once PYS_FREE_PATH.'/includes/export-import/class-site-profile-exporter.php';
+require_once PYS_FREE_PATH.'/includes/export-import/class-site-profile-importer.php';
+require_once PYS_FREE_PATH.'/includes/export-import/class-site-profile-inventory.php';
+require_once PYS_FREE_PATH.'/includes/export-import/class-site-profile-import-view.php';
+require_once PYS_FREE_PATH.'/includes/export-import/class-site-profile-admin.php';
+require_once PYS_FREE_PATH.'/includes/export-import/class-site-profile-rest-api.php';
+if ( is_admin() ) {
+    \PixelYourSite\SiteProfileAdmin::init();
+}
+
+\PixelYourSite\SiteProfileRestAPI::instance();
+// WP-CLI commands: wp pys profile <export|import|restore>.
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+    require_once PYS_FREE_PATH.'/includes/export-import/class-site-profile-cli-command.php';
+    \WP_CLI::add_command( 'pys profile', '\PixelYourSite\SiteProfileCliCommand' );
+}
 
 
 require_once PYS_FREE_PATH.'/includes/formEvents/interface-formEvents.php';
@@ -84,4 +121,10 @@ PixelYourSite\PYS();
 
 add_action( 'init', function() {
     \PixelYourSite\Facebook_REST_API();
+    \PixelYourSite\OpenAI_REST_API();
+    // Central REST API guard (Facebook + add-on endpoints) via rest_pre_dispatch.
+    \PixelYourSite\RestAPIGuard::instance();
 }, 9 );
+
+// MCP subsystem — composer PSR-4 autoloaded from includes/mcp/.
+\PixelYourSite\MCP\McpServer::instance();

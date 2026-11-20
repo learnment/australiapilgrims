@@ -33,7 +33,7 @@ if ( ! defined( 'ABSPATH' ) ) {
             <div class="card-body">
                 <div class="gap-24">
                     <p>From here you can control the events and parameters fired by PixelYourSite Professional on CartFlows pages and actions.</p>
-                    <p class="text-gray">To learn more <a class="link" href="https://www.pixelyoursite.com/cartflows-and-pixelyoursite" target="_blank">go to this dedicated page and watch the video</a></p>
+                    <p class="text-gray">To learn more <a class="link" href="https://www.pixelyoursite.com/strategy/cartflows" target="_blank">go to this dedicated page and watch the video</a></p>
 
                     <div class="d-flex align-items-center pro-feature-container">
                         <div class="d-flex align-items-center flex-with-badge">
@@ -112,7 +112,7 @@ if ( ! defined( 'ABSPATH' ) ) {
                                 <h4 class="primary_heading mb-8">Meta Pixel ID:</h4>
                                 <?php renderDummyTextInput('Add your pixel ID there'); ?>
                                 <div class="form-text mt-4">
-                                    <a href="https://www.pixelyoursite.com/pixelyoursite-free-version/add-your-facebook-pixel"
+                                    <a href="https://www.pixelyoursite.com/docs/meta-facebook-settings-setup"
                                        target="_blank" class="link link-small">How to get it?</a>
                                 </div>
                             </div>
@@ -167,6 +167,16 @@ if ( ! defined( 'ABSPATH' ) ) {
                             </div>
                         </div>
                     <?php endif; ?>
+
+	                <?php if ( Reddit()->enabled() ) : ?>
+                        <div class="plate gap-24">
+                            <div>
+                                <h4 class="secondary_heading_type2 mb-24">Reddit Tag</h4>
+                                <h4 class="primary_heading mb-8">Reddit Tag ID:</h4>
+				                <?php renderDummyTextInput('Add your ID there'); ?>
+                            </div>
+                        </div>
+	                <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -339,6 +349,13 @@ if ( ! defined( 'ABSPATH' ) ) {
                                             <h4 class="switcher-label secondary_heading">Bing</h4>
                                         </div>
                                     <?php endif; ?>
+
+	                                <?php if ( Reddit()->enabled() ) : ?>
+                                        <div class="d-flex align-items-center">
+			                                <?php renderDummySwitcher(); ?>
+                                            <h4 class="switcher-label secondary_heading">Reddit</h4>
+                                        </div>
+	                                <?php endif; ?>
                                 </div>
                             </div>
                         </div>
@@ -386,6 +403,13 @@ if ( ! defined( 'ABSPATH' ) ) {
                                             <h4 class="switcher-label secondary_heading">Bing</h4>
                                         </div>
                                     <?php endif; ?>
+
+	                                <?php if ( Reddit()->enabled() ) : ?>
+                                        <div class="d-flex align-items-center">
+			                                <?php renderDummySwitcher(); ?>
+                                            <h4 class="switcher-label secondary_heading">Reddit</h4>
+                                        </div>
+	                                <?php endif; ?>
                                 </div>
                             </div>
                         </div>
@@ -432,6 +456,13 @@ if ( ! defined( 'ABSPATH' ) ) {
                                             <h4 class="switcher-label secondary_heading">Bing</h4>
                                         </div>
                                     <?php endif; ?>
+
+	                                <?php if ( Reddit()->enabled() ) : ?>
+                                        <div class="d-flex align-items-center">
+			                                <?php renderDummySwitcher(); ?>
+                                            <h4 class="switcher-label secondary_heading">Reddit</h4>
+                                        </div>
+	                                <?php endif; ?>
                                 </div>
                             </div>
                         </div>

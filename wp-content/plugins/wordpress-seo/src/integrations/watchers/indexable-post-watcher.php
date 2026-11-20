@@ -177,11 +177,6 @@ class Indexable_Post_Watcher implements Integration_Interface {
 			return;
 		}
 
-		if ( \is_a( $post, Indexable::class ) ) {
-			\_deprecated_argument( __FUNCTION__, '17.7', 'The $old_indexable argument has been deprecated.' );
-			$post = $this->post->get_post( $indexable->object_id );
-		}
-
 		$this->update_relations( $post );
 	}
 
@@ -321,7 +316,7 @@ class Indexable_Post_Watcher implements Integration_Interface {
 		}
 		$related_indexables = \array_merge(
 			$related_indexables,
-			$this->repository->find_by_multiple_ids_and_type( $term_ids, 'term', false )
+			$this->repository->find_by_multiple_ids_and_type( $term_ids, 'term', false ),
 		);
 
 		return \array_filter( $related_indexables );

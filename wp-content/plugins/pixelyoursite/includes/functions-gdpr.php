@@ -64,7 +64,12 @@ function isCookiebotPluginActivated() {
 		include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
 	}
 	
-	return is_plugin_active( 'cookiebot/cookiebot.php' );
+	/**
+	 * Cookiebot can be embedded by hand (theme, tag manager) with no WP plugin;
+	 * the plugin check cannot see that. The filter lets such a site unlock the
+	 * integration: add_filter( 'pys_cookiebot_active', '__return_true' ).
+	 */
+	return (bool) apply_filters( 'pys_cookiebot_active', is_plugin_active( 'cookiebot/cookiebot.php' ) );
 	
 }
 
@@ -123,7 +128,7 @@ function adminGdprAjaxNotEnabledNotice() {
     ) );
 
     $meta_key = 'pys_core_gdpr_ajax_notice_dismissed_at';
-    $dismissed_at = get_user_meta( $user_id, $meta_key );
+    $dismissed_at = get_option( $meta_key );
     if(!$dismissed_at){
         ?>
 

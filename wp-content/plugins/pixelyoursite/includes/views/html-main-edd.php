@@ -9,7 +9,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 ?>
 
 <div class="cards-wrapper cards-wrapper-style1 gap-24">
-
+    <div class="card card-style6 card-static">
+        <div class="card-body">
+            <div class="gap-24">
+                <div>
+                    <p>
+                        <b><?php _e('Recommended', 'pys'); ?></b>: <?php _e('Exclude the Confirmation page from cache. In EDD, this is the page customers see after checkout is completed. Caching it can reuse an old event_id and break Purchase event deduplication.', 'pys');?>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
     <!-- Advanced Purchase Tracking-->
     <div class="card card-style5">
         <div class="card-header card-header-style3 d-flex justify-content-between align-items-center">
@@ -28,26 +38,35 @@ if ( ! defined( 'ABSPATH' ) ) {
                     <div class="d-flex align-items-center">
                         <div class="d-flex align-items-center flex-with-badge">
                             <?php renderDummySwitcher( false); ?>
-                            <h4 class="switcher-label secondary_heading"><?php _e( 'Facebook auto-renewals purchase tracking', 'pys' ); ?></h4>
+                            <h4 class="switcher-label secondary_heading"><?php _e( 'Facebook backup and renewals Purchase tracking via API', 'pys' ); ?></h4>
                         </div>
                     </div>
                     <div class="d-flex align-items-center">
                         <div class="d-flex align-items-center flex-with-badge">
                             <?php renderDummySwitcher( false); ?>
-                            <h4 class="switcher-label secondary_heading"><?php _e( 'Google Analytics auto-renewals purchase tracking', 'pys' ); ?></h4>
+                            <h4 class="switcher-label secondary_heading"><?php _e( 'Google Analytics backup and renewals Purchase tracking via API', 'pys' ); ?></h4>
                         </div>
                     </div>
                     <div class="d-flex align-items-center">
                         <div class="d-flex align-items-center flex-with-badge">
                             <?php renderDummySwitcher( false); ?>
-                            <h4 class="switcher-label secondary_heading"><?php _e( 'TikTok Advanced Purchase Tracking', 'pys' ); ?></h4>
+                            <h4 class="switcher-label secondary_heading"><?php _e( 'TikTok backup and renewals Purchase tracking via API', 'pys' ); ?></h4>
                         </div>
                     </div>
+                    <?php if ( OpenAI()->enabled() ) : ?>
+                        <div class="d-flex align-items-center">
+                            <div class="d-flex align-items-center flex-with-badge">
+                                <?php renderDummySwitcher( false); ?>
+                                <h4 class="switcher-label secondary_heading"><?php _e( 'OpenAI backup and renewals Purchase tracking via API', 'pys' ); ?></h4>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+
                     <?php if ( Pinterest()->enabled() ) : ?>
                         <div class="d-flex align-items-center">
                             <div class="d-flex align-items-center flex-with-badge">
                                 <?php renderDummySwitcher( false); ?>
-                                <h4 class="switcher-label secondary_heading"><?php _e( 'Pinterest Advanced Purchase Tracking', 'pys' ); ?></h4>
+                                <h4 class="switcher-label secondary_heading"><?php _e( 'Pinterest backup and renewals Purchase tracking via API', 'pys' ); ?></h4>
                             </div>
                         </div>
                     <?php endif; ?>
@@ -138,7 +157,7 @@ if ( ! defined( 'ABSPATH' ) ) {
         <div class="card-body">
             <div class="d-flex align-items-center justify-content-between gap-24">
                 <p style="text-align: center;"><?php _e('Use our dedicated plugin to create auto-updating feeds for Facebook Product Catalogs.', 'pys');?></p>
-                <a class="link" href="https://www.pixelyoursite.com/easy-digital-downloads-product-catalog?utm_source=pixelyoursite-free-plugin&utm_medium=plugin&utm_campaign=free-plugin-catalog-edd"
+                <a class="link" href="https://www.pixelyoursite.com/plugins/easy-digital-downloads-product-catalog-feed"
                    target="_blank"><?php _e('Click to get Easy Digital Downloads Product Catalog Feed', 'pys');?></a>
             </div>
         </div>
@@ -146,6 +165,16 @@ if ( ! defined( 'ABSPATH' ) ) {
     <!-- video -->
     <?php
     $videos = array(
+        array(
+            'url'   => 'https://www.youtube.com/watch?v=2RNwboDKXuI',
+            'title' => 'Fix ID tracking issues with Claude',
+            'time'  => '4:06',
+        ),
+        array(
+            'url'   => 'https://www.youtube.com/watch?v=rlnwEw3mKaU',
+            'title' => 'Ask Claude Which Ads & Products Perform Best in WooCommerce',
+            'time'  => '2:00',
+        ),
         array(
             'url'   => 'https://www.youtube.com/watch?v=-bN5D_HJyuA',
             'title' => 'Enhanced Conversions for Google Ads with PixelYourSite',
@@ -241,6 +270,12 @@ if ( ! defined( 'ABSPATH' ) ) {
                                     ) ); ?>
                                 </div>
                                 <div>
+                                    <div class="d-flex align-items-center mb-4">
+                                        <?php Facebook()->render_switcher_input( 'edd_variable_as_simple' ); ?>
+                                        <h4 class="switcher-label secondary_heading">For downloads with price variations use the parent product ID for each variation</h4>
+                                    </div>
+                                </div>
+                                <div>
                                     <div class="mb-8">
                                         <label class="primary_heading">content_id prefix</label>
                                     </div>
@@ -279,6 +314,12 @@ if ( ! defined( 'ABSPATH' ) ) {
                                         'download_id' => 'Download ID',
                                         'download_sku'   => 'Download SKU',
                                     ) ); ?>
+                                </div>
+                                <div>
+                                    <div class="d-flex align-items-center mb-4">
+                                        <?php GATags()->render_switcher_input( 'edd_variable_as_simple' ); ?>
+                                        <h4 class="switcher-label secondary_heading">For downloads with price variations use the parent product ID for each variation</h4>
+                                    </div>
                                 </div>
                                 <div>
                                     <div class="mb-8">
@@ -322,6 +363,12 @@ if ( ! defined( 'ABSPATH' ) ) {
                                     ) ); ?>
                                 </div>
                                 <div>
+                                    <div class="d-flex align-items-center mb-4">
+                                        <?php Pinterest()->render_switcher_input( 'edd_variable_as_simple' ); ?>
+                                        <h4 class="switcher-label secondary_heading">For downloads with price variations use the parent product ID for each variation</h4>
+                                    </div>
+                                </div>
+                                <div>
                                     <div class="mb-8">
                                         <label class="primary_heading">ID prefix</label>
                                     </div>
@@ -344,7 +391,7 @@ if ( ! defined( 'ABSPATH' ) ) {
                             <div class="d-flex align-items-center">
                                 <h4 class="secondary_heading_type2">Pinterest Tag ID settings</h4>&nbsp;
                                 <a class="link"
-                                   href="https://www.pixelyoursite.com/pinterest-tag?utm_source=pys-free-plugin&utm_medium=pinterest-badge&utm_campaign=requiere-free-add-on"
+                                   href="https://www.pixelyoursite.com/plugins/pixelyoursite-professional/pinterest-tag-add-on?utm_source=pys-free-plugin&utm_medium=pinterest-badge&utm_campaign=requiere-free-add-on"
                                    target="_blank">The paid add-on is required</a>
                             </div>
                         </div>
@@ -373,6 +420,12 @@ if ( ! defined( 'ABSPATH' ) ) {
                                     ) ); ?>
                                 </div>
                                 <div>
+                                    <div class="d-flex align-items-center mb-4">
+                                        <?php Bing()->render_switcher_input( 'edd_variable_as_simple' ); ?>
+                                        <h4 class="switcher-label secondary_heading">For downloads with price variations use the parent product ID for each variation</h4>
+                                    </div>
+                                </div>
+                                <div>
                                     <div class="mb-8">
                                         <label class="primary_heading">ID prefix</label>
                                     </div>
@@ -394,13 +447,119 @@ if ( ! defined( 'ABSPATH' ) ) {
                             <div class="d-flex align-items-center">
                                 <h4 class="secondary_heading_type2">Bing Tag ID settings</h4>&nbsp;
                                 <a class="link"
-                                   href="https://www.pixelyoursite.com/bing-tag?utm_source=pixelyoursite-free-plugin&utm_medium=plugin&utm_campaign=free-plugin-bing"
+                                   href="https://www.pixelyoursite.com/plugins/pixelyoursite-professional/bing-tag-add-on?utm_source=pixelyoursite-free-plugin&utm_medium=plugin&utm_campaign=free-plugin-bing"
                                    target="_blank">The paid add-on is required</a>
                             </div>
                         </div>
                     </div>
                 <?php endif; ?>
 
+	            <?php if ( Reddit()->enabled() ) : ?>
+                    <div class="card card-style6">
+                        <div class="card-header card-header-style2 d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center">
+                                <h4 class="secondary_heading_type2">Reddit Tag ID settings</h4>
+                            </div>
+
+				            <?php cardCollapseSettings(); ?>
+                        </div>
+
+                        <div class="card-body">
+                            <div class="gap-24">
+                                <div>
+                                    <div class="mb-8">
+                                        <label class="primary_heading">ID</label>
+                                    </div>
+						            <?php Reddit()->render_select_input( 'edd_content_id', array(
+							            'download_id' => 'Download ID',
+							            'download_sku'   => 'Download SKU',
+						            ) ); ?>
+                                </div>
+                                <div>
+                                    <div class="d-flex align-items-center mb-4">
+                                        <?php Reddit()->render_switcher_input( 'edd_variable_as_simple' ); ?>
+                                        <h4 class="switcher-label secondary_heading">For downloads with price variations use the parent product ID for each variation</h4>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="mb-8">
+                                        <label class="primary_heading">ID prefix</label>
+                                    </div>
+						            <?php Reddit()->render_text_input( 'edd_content_id_prefix', '(optional)', false, false, false, 'short' ); ?>
+                                </div>
+                                <div>
+                                    <div class="mb-8">
+                                        <label class="primary_heading">ID suffix</label>
+                                    </div>
+						            <?php Reddit()->render_text_input( 'edd_content_id_suffix', '(optional)', false, false, false, 'short' ); ?>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+	            <?php else: ?>
+                    <div class="card card-style6">
+                        <div class="card-header card-header-style2 d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center">
+                                <h4 class="secondary_heading_type2">Reddit Tag ID settings</h4>&nbsp;
+                                <a class="link"
+                                   href="https://www.pixelyoursite.com/plugins/pixelyoursite-professional/reddit-wordpress-plugin"
+                                   target="_blank">The paid add-on is required</a>
+                            </div>
+                        </div>
+                    </div>
+	            <?php endif; ?>
+
+
+                <?php if ( OpenAI()->enabled() ) : ?>
+                    <div class="card card-style6">
+                        <div class="card-header card-header-style2 d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center">
+                                <h4 class="secondary_heading_type2">OpenAI ID settings</h4>
+                            </div>
+
+                            <?php cardCollapseSettings(); ?>
+                        </div>
+
+                        <div class="card-body">
+                            <div class="gap-24">
+                                <div>
+                                    <div class="mb-8">
+                                        <label class="primary_heading">Item ID</label>
+                                    </div>
+
+                                    <?php OpenAI()->render_select_input( 'edd_content_id', array(
+                                        'download_id'  => 'Download ID',
+                                        'download_sku' => 'Download SKU',
+                                    ) ); ?>
+                                </div>
+
+                                <div>
+                                    <div class="d-flex align-items-center mb-4">
+                                        <?php OpenAI()->render_switcher_input( 'edd_variable_as_simple' ); ?>
+                                        <h4 class="switcher-label secondary_heading">For downloads with price variations use the parent product ID for each variation</h4>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="mb-8">
+                                        <label class="primary_heading">Item ID prefix</label>
+                                    </div>
+
+                                    <?php OpenAI()->render_text_input( 'edd_content_id_prefix', '(optional)', false, false, false, 'short' ); ?>
+                                </div>
+
+                                <div>
+                                    <div class="mb-8">
+                                        <label class="primary_heading">Item ID suffix</label>
+                                    </div>
+
+                                    <?php OpenAI()->render_text_input( 'edd_content_id_suffix', '(optional)', false, false, false, 'short' ); ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                <?php endif; ?>
                 <?php if ( GTM()->enabled() ) : ?>
 
                     <div class="card card-style6">
@@ -422,6 +581,12 @@ if ( ! defined( 'ABSPATH' ) ) {
                                         'download_id' => 'Download ID',
                                         'download_sku'   => 'Download SKU',
                                     ) ); ?>
+                                </div>
+                                <div>
+                                    <div class="d-flex align-items-center mb-4">
+                                        <?php GTM()->render_switcher_input( 'edd_variable_as_simple' ); ?>
+                                        <h4 class="switcher-label secondary_heading">For downloads with price variations use the parent product ID for each variation</h4>
+                                    </div>
                                 </div>
                                 <div>
                                     <div class="mb-8">
@@ -551,7 +716,7 @@ if ( ! defined( 'ABSPATH' ) ) {
                                     <h4 class="switcher-label secondary_heading">Enable the purchase event on Google
                                         Ads</h4>
                                 </div>
-                                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag/?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
+                                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
                             </div>
                             <?php renderDummyGoogleAdsConversionLabelInputs(); ?>
                         </div>
@@ -578,6 +743,20 @@ if ( ! defined( 'ABSPATH' ) ) {
                             </div>
                         <?php endif; ?>
 
+
+                        <?php if ( OpenAI()->enabled() ) : ?>
+                            <div class="d-flex align-items-center">
+                                <?php OpenAI()->render_switcher_input( 'edd_purchase_enabled' ); ?>
+                                <h4 class="switcher-label secondary_heading">Enable the order_created event on OpenAI</h4>
+                            </div>
+                        <?php endif; ?>
+	                    <?php if(Reddit()->enabled()) : ?>
+                            <div class="d-flex align-items-center">
+                                <?php Reddit()->render_switcher_input('edd_purchase_enabled'); ?>
+                                <h4 class="switcher-label secondary_heading">Enable the Purchase event on Reddit</h4>
+                            </div>
+	                    <?php endif; ?>
+
                         <?php if ( GTM()->enabled() ) : ?>
                             <div class="line"></div>
                             <div class="d-flex align-items-center">
@@ -591,9 +770,94 @@ if ( ! defined( 'ABSPATH' ) ) {
                         <?php
                         $message = '*This event will be fired on the order-received, the default Easy Digital Downloads
                                     "thank you page". If you use PayPal, make sure that auto-return is ON. If you want to use "custom
-                                    thank you pages", you must configure them with our <a href="https://www.pixelyoursite.com/super-pack"
+                                    thank you pages", you must configure them with our <a href="https://www.pixelyoursite.com/plugins/pixelyoursite-professional/the-super-pack"
                                                                     target="_blank" class="link">Super Pack</a>.';
                         renderWarningMessage( $message ); ?>
+                    </div>
+                </div>
+            </div>
+            <!-- Track Subscriptions -->
+            <div class="card card-style6">
+                <div class="card-header card-header-style2 disable-card-wrap d-flex justify-content-between align-items-center">
+                    <div class="disable-card d-flex align-items-center">
+                        <?php renderDummySwitcher(); ?>
+                        <h4 class="secondary_heading_type2 switcher-label">Track Subscriptions</h4>
+                    </div>
+                    <div class="d-flex align-items-center flex-collapse-block">
+                        <?php renderProBadge(); ?>
+                        <?php cardCollapseSettings(); ?>
+                    </div>
+                </div>
+
+                <div class="card-body">
+                    <div class="pro-feature-container">
+                        <div class="gap-24">
+                            <p class="text-gray">
+                                <?php _e('This option will enable the following events:', 'pys');?> <span class="parameters-list">StartTrial</span> (when a free trial is initiated), <span class="parameters-list">Subscribe</span> (when a new subscription is created), <span class="parameters-list">SubscriptionRenewal</span> (when a subscription is renewed), <span class="parameters-list">SubscriptionExpired</span> (when a subscription expires), <span class="parameters-list">SubscriptionCanceled</span> (when a subscription is canceled).
+                            </p>
+
+                            <?php if ( !isEddRecurringActive() ) : ?>
+                                <p class="text-danger">
+                                    <?php _e( 'EDD Recurring plugin is required for this feature to work.', 'pys' ); ?>
+                                </p>
+                            <?php else : ?>
+                                <p class="text-gray">This feature works only when there is an API connection configured for the tag.</p>
+                            <?php endif; ?>
+                            <?php
+                            renderEddSubscriptionsPlatformSwitcher( Facebook() );
+                            renderEddSubscriptionsPlatformSwitcher( GA() );
+
+                            if ( OpenAI()->enabled() ) {
+                                renderEddSubscriptionsPlatformSwitcher( OpenAI() );
+                            }
+
+                            if ( Pinterest()->enabled() ) {
+                                renderEddSubscriptionsPlatformSwitcher( Pinterest() );
+                            }
+                            ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Track License -->
+            <div class="card card-style6">
+                <div class="card-header card-header-style2 disable-card-wrap d-flex justify-content-between align-items-center">
+                    <div class="disable-card d-flex align-items-center">
+                        <?php renderDummySwitcher(); ?>
+                        <h4 class="card-heading secondary_heading">Track License</h4>
+                    </div>
+                    <div class="d-flex align-items-center flex-collapse-block">
+                        <?php renderProBadge(); ?>
+                        <?php cardCollapseSettings(); ?>
+                    </div>
+                </div>
+
+                <div class="card-body">
+                    <div class="pro-feature-container">
+                        <div class="gap-24">
+                            <p class="text-gray">
+                                <?php _e('This option will enable the following events:', 'pys');?> <span class="parameters-list">LicenseCreated, License_upgrade, License_expired</span>.
+                            </p>
+                            <?php if ( !isEddSoftwareLicensingActive() ) : ?>
+                                <div class="d-flex align-items-center">
+                                    <p class="text-danger">
+                                        <?php _e( 'EDD Software Licensing plugin is required for this feature to work.', 'pys' ); ?>
+                                    </p>
+                                </div>
+                            <?php else: ?>
+                                <div class="d-flex align-items-center">
+                                    <p class="text-gray">This feature works only when there is an API connection configured for the tag.</p>
+                                </div>
+                            <?php
+                            endif;
+                            renderEddLicensesPlatformSwitcher( Facebook() );
+                            renderEddLicensesPlatformSwitcher( GA() );
+
+                            if ( Pinterest()->enabled() ) {
+                                renderEddLicensesPlatformSwitcher( Pinterest() );
+                            }
+                            ?>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -631,7 +895,7 @@ if ( ! defined( 'ABSPATH' ) ) {
                                     <h4 class="switcher-label secondary_heading">Enable the begin_checkout event on Google
                                         Ads</h4>
                                 </div>
-                                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag/?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
+                                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
                             </div>
 
                             <?php renderDummyGoogleAdsConversionLabelInputs(); ?>
@@ -653,6 +917,14 @@ if ( ! defined( 'ABSPATH' ) ) {
                             <div class="d-flex align-items-center">
                                 <?php Bing()->render_switcher_input( 'edd_initiate_checkout_enabled' ); ?>
                                 <h4 class="switcher-label secondary_heading">Enable the InitiateCheckout on Bing</h4>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php if ( OpenAI()->enabled() ) :
+                            $configured = true; ?>
+                            <div class="d-flex align-items-center">
+                                <?php OpenAI()->render_switcher_input( 'edd_initiate_checkout_enabled' ); ?>
+                                <h4 class="switcher-label secondary_heading">Enable the checkout_started event on OpenAI</h4>
                             </div>
                         <?php endif; ?>
 
@@ -707,14 +979,14 @@ if ( ! defined( 'ABSPATH' ) ) {
                                     <?php renderDummySwitcher(); ?>
                                     <h4 class="switcher-label secondary_heading">Enable the add_to_cart event on Google Ads</h4>
                                 </div>
-                                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag/?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
+                                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
                             </div>
 
                             <?php renderDummyGoogleAdsConversionLabelInputs(); ?>
                         </div>
 
 
-                        <?php if ( Pinterest()->enabled() || Bing()->enabled() ) : ?>
+                        <?php if ( Pinterest()->enabled() || Bing()->enabled() || Reddit()->enabled() ) : ?>
                             <div class="line"></div>
                         <?php endif; ?>
                         <?php if ( Pinterest()->enabled() ) : $configured = true; ?>
@@ -729,6 +1001,21 @@ if ( ! defined( 'ABSPATH' ) ) {
                                 <h4 class="switcher-label secondary_heading">Enable the AddToCart event on Bing</h4>
                             </div>
                         <?php endif; ?>
+
+
+                        <?php if ( OpenAI()->enabled() ) :
+                            $configured = true; ?>
+                            <div class="d-flex align-items-center">
+                                <?php OpenAI()->render_switcher_input( 'edd_add_to_cart_enabled' ); ?>
+                                <h4 class="switcher-label secondary_heading">Enable the items_added event on OpenAI</h4>
+                            </div>
+                        <?php endif; ?>
+	                    <?php if ( Reddit()->enabled() ) : $configured = true; ?>
+                            <div class="d-flex align-items-center">
+			                    <?php Reddit()->render_switcher_input( 'edd_add_to_cart_enabled' ); ?>
+                                <h4 class="switcher-label secondary_heading">Enable the AddToCart event on Reddit</h4>
+                            </div>
+	                    <?php endif; ?>
 
                         <?php if ( GTM()->enabled() ) : ?>
                             <div>
@@ -778,13 +1065,13 @@ if ( ! defined( 'ABSPATH' ) ) {
                                     <?php renderDummySwitcher(); ?>
                                     <h4 class="switcher-label secondary_heading">Enable the view_item event on Google Ads</h4>
                                 </div>
-                                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag/?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
+                                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
                             </div>
                         </div>
 
                         <?php renderDummyGoogleAdsConversionLabelInputs(); ?>
 
-                        <?php if ( Pinterest()->enabled() || Bing()->enabled() ) : ?>
+                        <?php if ( Pinterest()->enabled() || Bing()->enabled() || Reddit()->enabled() ) : ?>
                             <div class="line"></div>
                         <?php endif; ?>
                         <?php if ( Pinterest()->enabled() ) :
@@ -803,6 +1090,22 @@ if ( ! defined( 'ABSPATH' ) ) {
                                 <h4 class="switcher-label secondary_heading">Enable the PageVisit event on Bing</h4>
                             </div>
                         <?php endif; ?>
+
+
+                        <?php if ( OpenAI()->enabled() ) :
+                            $configured = true; ?>
+                            <div class="d-flex align-items-center">
+                                <?php OpenAI()->render_switcher_input( 'edd_view_content_enabled' ); ?>
+                                <h4 class="switcher-label secondary_heading">Enable the contents_viewed event on OpenAI</h4>
+                            </div>
+                        <?php endif; ?>
+	                    <?php if ( Reddit()->enabled() ) :
+		                    $configured = true; ?>
+                            <div class="d-flex align-items-center">
+			                    <?php Reddit()->render_switcher_input( 'edd_view_content_enabled' ); ?>
+                                <h4 class="switcher-label secondary_heading">Enable the ViewContent event on Reddit</h4>
+                            </div>
+	                    <?php endif; ?>
 
                         <?php if ( GTM()->enabled() ) : ?>
                             <div>
@@ -853,7 +1156,7 @@ if ( ! defined( 'ABSPATH' ) ) {
                                     <?php renderDummySwitcher(); ?>
                                     <h4 class="switcher-label secondary_heading">Enable the view_item_list event on Google Ads</h4>
                                 </div>
-                                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag/?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
+                                <?php renderProBadge('https://www.pixelyoursite.com/google-ads-tag?utm_source=pys-free-plugin&utm_medium=pro-badge&utm_campaign=pro-feature'); ?>
                             </div>
 
                             <?php renderDummyGoogleAdsConversionLabelInputs(); ?>
@@ -954,6 +1257,13 @@ if ( ! defined( 'ABSPATH' ) ) {
                                 </div>
                             <?php endif; ?>
 
+	                        <?php if ( Reddit()->enabled() ) : ?>
+                                <div class="d-flex align-items-center">
+			                        <?php renderDummySwitcher(); ?>
+                                    <h4 class="switcher-label secondary_heading">Enable on Reddit</h4>
+                                </div>
+	                        <?php endif; ?>
+
                             <?php if ( GTM()->enabled() ) : ?>
                                 <?php if ( $configured ) : ?>
                                     <div class="line"></div>
@@ -1034,6 +1344,14 @@ if ( ! defined( 'ABSPATH' ) ) {
                                     <h4 class="switcher-label secondary_heading">Enable on Bing</h4>
                                 </div>
                             <?php endif; ?>
+
+	                        <?php if ( Reddit()->enabled() ) :
+		                        $configured = true; ?>
+                                <div class="d-flex align-items-center">
+			                        <?php renderDummySwitcher(); ?>
+                                    <h4 class="switcher-label secondary_heading">Enable on Reddit</h4>
+                                </div>
+	                        <?php endif; ?>
 
 
                             <?php if ( GTM()->enabled() ) : ?>
@@ -1121,6 +1439,14 @@ if ( ! defined( 'ABSPATH' ) ) {
                                     <h4 class="switcher-label secondary_heading">Enable on Bing</h4>
                                 </div>
                             <?php endif; ?>
+
+	                        <?php if ( Reddit()->enabled() ) :
+		                        $configured = true; ?>
+                                <div class="d-flex align-items-center">
+			                        <?php renderDummySwitcher(); ?>
+                                    <h4 class="switcher-label secondary_heading">Enable on Reddit</h4>
+                                </div>
+	                        <?php endif; ?>
 
                             <?php if ( GTM()->enabled() ) : ?>
                                 <?php if ( $configured ) : ?>

@@ -182,6 +182,7 @@ include_once 'components/recommended-video.php';
                             include PYS_FREE_PATH . '/modules/google_gtm/views/html-settings.php';
                             break;
 
+
                         case 'superpack_settings':
                             /** @noinspection PhpIncludeInspection */
                             include PYS_FREE_PATH . '/modules/superpack/views/html-settings.php';
@@ -195,7 +196,11 @@ include_once 'components/recommended-video.php';
                             include "html-reset.php";
                             break;
                         case 'logs':
-                            include "html-logs.php";
+                            if ( current_user_can( 'manage_pys_data_export' ) ) {
+                                include "html-logs.php";
+                            } else {
+                                include "html-logs-no-access.php";
+                            }
                             break;
                         case 'hooks':
                             include "html-hooks.php";
@@ -213,7 +218,7 @@ include_once 'components/recommended-video.php';
                         <p class="mb-20">Track every key action and improve your ads return with the PRO version:</p>
 
                         <div>
-                            <a href="https://www.pixelyoursite.com/facebook-pixel-plugin/buy-pixelyoursite-pro?utm_source=pixelyoursite-free-plugin&utm_medium=plugin&utm_campaign=free-plugin-upgrade-blue"
+                            <a href="https://www.pixelyoursite.com/plugins/pixelyoursite-professional"
                                target="_blank"
                                class="link-extra-small upgrade-item-button">Upgrade</a>
                         </div>
@@ -252,7 +257,7 @@ include_once 'components/recommended-video.php';
                             <?php endforeach; ?>
 
                             <a class="<?php echo esc_attr( $classes ); ?>"
-                               href="https://www.pixelyoursite.com/documentation?utm_source=pro&utm_medium=plugin&utm_campaign=right-column-pro"
+                               href="https://www.pixelyoursite.com/docs"
                                target="_blank"">
                             <div class="sidebar-menu-item">
 
@@ -350,7 +355,7 @@ include_once 'components/recommended-video.php';
                             </p>
 
                             <div>
-                                <a href="https://www.pixelyoursite.com/product-catalog-facebook?utm_source=pro&utm_medium=plugin&utm_campaign=right-column-pro"
+                                <a href="https://www.pixelyoursite.com/plugins/product-catalog-feed-for-woocommerce"
                                    target="_blank"
                                    class="link link-extra-small">Click for details</a>
                             </div>
@@ -369,7 +374,7 @@ include_once 'components/recommended-video.php';
                             </p>
 
                             <div>
-                                <a href="https://www.pixelyoursite.com/easy-digital-downloads-product-catalog?utm_source=pro&utm_medium=plugin&utm_campaign=right-column-pro"
+                                <a href="https://www.pixelyoursite.com/plugins/easy-digital-downloads-product-catalog-feed"
                                    target="_blank"
                                    class="link link-extra-small">Click for details</a>
                             </div>
@@ -390,7 +395,7 @@ include_once 'components/recommended-video.php';
                             </p>
 
                             <div>
-                                <a href="https://www.pixelyoursite.com/super-pack?utm_source=pro&utm_medium=plugin&utm_campaign=right-column-pro"
+                                <a href="https://www.pixelyoursite.com/plugins/pixelyoursite-professional/the-super-pack?utm_source=pro&utm_medium=plugin&utm_campaign=right-column-pro"
                                    target="_blank"
                                    class="link link-extra-small">Click for details</a>
                             </div>

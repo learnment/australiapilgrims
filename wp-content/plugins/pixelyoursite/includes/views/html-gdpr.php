@@ -82,7 +82,7 @@ if ( !defined( 'ABSPATH' ) ) {
 
                 </div>
                 <div class="mt-24">
-                    <a href="https://www.pixelyoursite.com/plugins/consentmagic/?utm_source=pixelyoursite-pro&utm_medium=pixelyoursite-pro&utm_campaign=pixelyoursite-pro&utm_content=pixelyoursite-pro&utm_term=pixelyoursite-pro"
+                    <a href="https://www.pixelyoursite.com/plugins/consentmagic?utm_source=pixelyoursite-pro&utm_medium=pixelyoursite-pro&utm_campaign=pixelyoursite-pro&utm_content=pixelyoursite-pro&utm_term=pixelyoursite-pro"
                        target="_blank" class="btn btn-sm btn-primary btn-primary-type2 learn-more-btn">
                         Lean more about Consent Magic
                     </a>
@@ -178,8 +178,9 @@ if ( !defined( 'ABSPATH' ) ) {
                             <p>This is a complete premium solution that also offers a free plan for websites with under 100 pages.
                                 For implementation, we suggest you follow their documentation.</p>
                             <p>
-                                <span class="mb-8">Website: <a href="https://cookiebot.com" class="link" target="_blank">https://cookiebot.com</a></span>
+                                <span class="mb-8">Website: <a href="https://www.cookiebot.com/" class="link" target="_blank">https://www.cookiebot.com/</a></span>
                                 <span>Plugin: <a href="https://wordpress.org/plugins/cookiebot/" class="link" target="_blank">https://wordpress.org/plugins/cookiebot/</a></span>
+                                <span>Cookiebot added by hand (theme or tag manager), without the plugin? Return true from the <code>pys_cookiebot_active</code> filter to unlock this integration.</span>
                             </p>
                         </div>
                         <div class="d-flex align-items-center mb-24">
@@ -328,7 +329,7 @@ if ( !defined( 'ABSPATH' ) ) {
                     Use following filters to control each pixel:
                     <span class="event-parameter-list">pys_disable_by_gdpr</span>, <span class="event-parameter-list">pys_disable_facebook_by_gdpr</span>,
                     <span class="event-parameter-list">pys_disable_analytics_by_gdpr</span>, <span class="event-parameter-list">pys_disable_tiktok_by_gdpr</span>, <span class="event-parameter-list">pys_disable_google_ads_by_gdpr</span>,
-                    <span class="event-parameter-list">pys_disable_pinterest_by_gdpr</span> or <span class="event-parameter-list">pys_disable_bing_by_gdpr</span>.
+                    <span class="event-parameter-list">pys_disable_pinterest_by_gdpr</span>, <span class="event-parameter-list">pys_disable_bing_by_gdpr</span> or <span class="event-parameter-list">pys_disable_reddit_by_gdpr</span>.
                 </p>
                 <p>First filter will disable all pixels, other can be used to disable particular pixel.
                     Simply pass <span class="event-parameter-list">TRUE</span> value to disable a pixel.
@@ -391,10 +392,25 @@ if ( !defined( 'ABSPATH' ) ) {
                     <p>Fire the pixel with consent mode "analytics_storage": "granted"</p>
                 </div>
                 <div>
-                    <p class="mb-8">The filter turn ON/OFF the Limited Data Use option:</p>
+                    <p class="mb-8">The filter turn ON/OFF Meta Limited Data Use option:</p>
                     <p>
                         Example:<br>
                         <span class="event-parameter-list">add_filter('pys_meta_ldu_mode','__return_true');</span>
+                    </p>
+                </div>
+
+                <div>
+                    <p class="mb-8">The filter turn ON/OFF Reddit Limited Data Use option:</p>
+                    <p>
+                        Example:<br>
+                        <span class="event-parameter-list">add_filter('pys_reddit_ldu_mode','__return_true');</span>
+                    </p>
+                </div>
+                <div>
+                    <p class="mb-8">The filter turn ON/OFF the OpenAI restricted mode (the event is sent with <span class="event-parameter-list">opt_out: true</span> and stays out of user-level personalization):</p>
+                    <p>
+                        Example:<br>
+                        <span class="event-parameter-list">add_filter('pys_openai_consent_mode','__return_true');</span>
                     </p>
                 </div>
             </div>

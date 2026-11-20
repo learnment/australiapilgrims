@@ -220,7 +220,13 @@ abstract class PostmanAbstractModuleTransport implements PostmanModuleTransport 
 		return PostmanOptions::getInstance ()->getEnvelopeSender ();
 	}
 	public function isEmailValidationSupported() {
-		return ! PostmanOptions::getInstance ()->isEmailValidationDisabled ();
+		$disabled = PostmanOptions::getInstance()->isEmailValidationDisabled();
+	
+		if ( $disabled ) {
+			return false; // validation is OFF
+		}
+	
+		return true; // validation is ON
 	}
 	
 	/**
@@ -671,7 +677,7 @@ abstract class PostmanAbstractZendModuleTransport extends PostmanAbstractModuleT
 		$scribe = $this->createScribe ( $hostname );
 		// checks to see if the host is an IP address and sticks the result in the response
 		// IP addresses are not allowed in the Redirect URL
-		$urlParts = parse_url ( $scribe->getCallbackUrl () );
+		$urlParts = wp_parse_url( $scribe->getCallbackUrl() );
 		$response ['dot_notation_url'] = false;
 		if (isset ( $urlParts ['host'] )) {
 			if (PostmanUtils::isHostAddressNotADomainName ( $urlParts ['host'] )) {

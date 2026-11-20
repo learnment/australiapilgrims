@@ -54,6 +54,7 @@ class FacebookServer {
             add_action( 'woocommerce_checkout_update_order_meta', array( $this, 'saveFbTagsInOrder' ), 10, 1 );
             // Hook for Store API (passes WC_Order object instead of order_id)
             add_action( 'woocommerce_store_api_checkout_update_order_meta', array( $this, 'saveFbTagsInOrder' ), 10, 1 );
+            add_action( 'edd_insert_payment', array( $this, 'saveFbTagsInEddOrder' ), 10, 1 );
             add_action( 'wp_ajax_pys_api_event',array($this,"catchAjaxEvent"));
             add_action( 'wp_ajax_nopriv_pys_api_event', array($this,"catchAjaxEvent"));
             add_action( 'woocommerce_remove_cart_item', array($this, 'trackRemoveFromCartEvent'), 10, 2);
@@ -66,10 +67,38 @@ class FacebookServer {
     }
 
     /**
+     * Snapshot the per-page referrer URL into each event's payload.
+     *
+     * Reads $_SERVER['HTTP_REFERER'] of the current synchronous request —
+     * the URL of the page where the event actually happened. Must run before
+     * the event is serialized into the wp-async-task queue: by the time the
+     * loopback handler executes, HTTP_REFERER belongs to the loopback itself
+     * and is meaningless.
+     *
+     * @param SingleEvent[] $events
+     */
+    private function snapshotReferrerOnEvents( $events ) {
+        if ( empty( $events ) ) {
+            return;
+        }
+        $referrer = pys_snapshot_event_referrer_url();
+        if ( empty( $referrer ) ) {
+            return;
+        }
+        foreach ( $events as $event ) {
+            if ( $event instanceof SingleEvent && empty( $event->getPayloadValue( 'referrer_url' ) ) ) {
+                $event->addPayload( [ 'referrer_url' => $referrer ] );
+            }
+        }
+    }
+
+    /**
      * Send event in shutdown hook (not work in ajax)
      * @param SingleEvent[] $events
      */
     public function sendEventsAsync($events) {
+
+        $this->snapshotReferrerOnEvents( $events );
 
         $serverEvents = [];
         foreach ($events as $event) {
@@ -92,9 +121,14 @@ class FacebookServer {
      */
     public function sendEventsNow($events) {
 
+        $this->snapshotReferrerOnEvents( $events );
+
         foreach ($events as $event) {
             $serverEvent = ServerEventHelper::mapEventToServerEvent($event);
-            $ids = $event->payload['pixelIds'];
+            $ids = $event->payload['pixelIds'] ?? null;
+            if ( empty( $ids ) ) {
+                continue; // Skip events with no destination pixels
+            }
 
             $this->sendEvent($ids,$serverEvent);
         }
@@ -135,11 +169,7 @@ class FacebookServer {
             PYS()->getLog()->debug('trackAddToCartEvent send fb server with out browser event');
             if( !empty($variation_id)
                 && $variation_id > 0
-                && ( !Facebook()->getOption( 'woo_variable_as_simple' )
-                    || ( Facebook()->getSlug() == "facebook"
-                        && !Facebook\Helpers\isDefaultWooContentIdLogic()
-                    )
-                )
+                && !Facebook\Helpers\facebookVariableAsSimple()
             ) {
                 $_product_id = $variation_id;
             } else {
@@ -148,9 +178,11 @@ class FacebookServer {
 
             $event =  new SingleEvent("woo_add_to_cart_on_button_click",EventTypes::$DYNAMIC,'woo');
             $event->args = ['productId' => $_product_id,'quantity' => $quantity];
-            add_filter('pys_conditional_post_id', function($id) use ($product_id) { return $product_id; });
+            // Remove only our own callback, not everything on the hook.
+            $conditional_post_id = function($id) use ($product_id) { return $product_id; };
+            add_filter('pys_conditional_post_id', $conditional_post_id);
             $events = Facebook()->generateEvents($event);
-            remove_all_filters('pys_conditional_post_id');
+            remove_filter('pys_conditional_post_id', $conditional_post_id);
 
             foreach ($events as $singleEvent) {
 
@@ -206,13 +238,21 @@ class FacebookServer {
      * we send data by ajax request from js and send the same data like browser event
      */
     function catchAjaxEvent() {
+        // Crawlers run our inline scripts; drop their events before any work
+        // or logging. wp_send_json_success() dies.
+        if ( PYS()->is_user_agent_bot() ) {
+            wp_send_json_success();
+        }
+
         PYS()->getLog()->debug('catchAjaxEvent send fb server from ajax');
         $event = $_POST['event'];
         $data = isset($_POST['data']) ? $_POST['data'] : array();
         $ids = $_POST['ids'];
         $eventID = $_POST['eventID'];
-        $wooOrder = isset($_POST['woo_order']) ? $_POST['woo_order'] : null;
-        $eddOrder = isset($_POST['edd_order']) ? $_POST['edd_order'] : null;
+        // This handler is reached through admin-ajax, which never passes through
+        // rest_pre_dispatch, so RestAPIGuard never sees this request.
+        $wooOrder = isset($_POST['woo_order']) && is_numeric($_POST['woo_order']) ? (int) $_POST['woo_order'] : null;
+        $eddOrder = isset($_POST['edd_order']) && is_numeric($_POST['edd_order']) ? (int) $_POST['edd_order'] : null;
 
 
         if ( empty( $_REQUEST['ajax_event'] ) || !wp_verify_nonce( $_REQUEST['ajax_event'], 'ajax-event-nonce' ) ) {
@@ -271,7 +311,9 @@ class FacebookServer {
             $this->access_token = Facebook()->getApiToken();
             $this->testCode = Facebook()->getApiTestCode();
         }
-
+        if ( (! is_array( $pixel_Ids ) && ! is_object( $pixel_Ids )) || empty( $pixel_Ids ) ) {
+            return;
+        }
         foreach($pixel_Ids  as $pixel_Id) {
 
             if(empty($this->access_token[$pixel_Id])) continue;
@@ -280,8 +322,21 @@ class FacebookServer {
 
             $api = Api::init(null, null, $this->access_token[$pixel_Id],false);
             $opts = $api->getHttpClient()->getAdapter()->getOpts();
-            if ($opts instanceof \ArrayObject && $opts->offsetExists(CURLOPT_CONNECTTIMEOUT)) {
-                $opts->offsetSet(CURLOPT_CONNECTTIMEOUT, 30);
+            if ($opts instanceof \ArrayObject) {
+                // CURLOPT_TIMEOUT was never set here, so the total transfer time
+                // was unbounded; and the offsetExists() guard meant even the
+                // connect timeout was skipped unless the SDK had pre-seeded it.
+                $opts->offsetSet(CURLOPT_CONNECTTIMEOUT, pys_server_connect_timeout());
+                $opts->offsetSet(CURLOPT_TIMEOUT, pys_server_request_timeout());
+
+                // Certificate checks stay on. The filter is an opt-in for a
+                // host with a broken CA bundle, and says so in the log.
+                if ( apply_filters( 'pys_fb_insecure_tls', false ) ) {
+                    $opts->offsetSet(CURLOPT_SSL_VERIFYPEER, false);
+                    $opts->offsetSet(CURLOPT_SSL_VERIFYHOST, false);
+                    PYS()->getLog()->error('TLS certificate verification is disabled by the pys_fb_insecure_tls filter');
+                }
+
                 $api->getHttpClient()->getAdapter()->setOpts($opts);
             }
             /**
@@ -316,7 +371,11 @@ class FacebookServer {
     public function saveFbTagsInOrder($order_param) {
         $pysData = [];
         $pysData['fbc'] = ServerEventHelper::getFbc();
-        $pysData['fbp'] = ServerEventHelper::getFbp();
+        // Only a value Meta's own library would keep: an invalid one stored here
+        // would be replayed on the order's later events.
+        $fbp = ServerEventHelper::getFbp();
+        $pysData['fbp'] = pys_fbp_is_valid( $fbp ) ? $fbp : null;
+
         $order = wc_get_order($order_param);
         if (isWooCommerceVersionGte('3.0.0') && !empty($order)) {
             // WooCommerce >= 3.0
@@ -328,6 +387,21 @@ class FacebookServer {
                 update_post_meta($order_param, 'pys_fb_cookie', $pysData);
             }
         }
+    }
+
+    public function saveFbTagsInEddOrder( $payment_id ) {
+        // Same snapshot the Woo order gets: a gateway webhook, cron or wp-admin
+        // sends the Purchase later without the buyer's cookies.
+        if ( ! pys_edd_order_snapshot_allowed( $payment_id ) || ! function_exists( 'edd_update_payment_meta' ) ) {
+            return;
+        }
+
+        $pysData = [];
+        $pysData['fbc'] = ServerEventHelper::getFbc();
+        $fbp = ServerEventHelper::getFbp();
+        $pysData['fbp'] = pys_fbp_is_valid( $fbp ) ? $fbp : null;
+
+        edd_update_payment_meta( (int) $payment_id, 'pys_fb_cookie', $pysData );
     }
 
 }

@@ -8,7 +8,414 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly.
 }
 
+/**
+ * True when the visitor's request reached the site over HTTPS.
+ *
+ * $_SERVER['HTTPS'] alone is unreliable behind an SSL-terminating proxy
+ * (Cloudflare, load balancer, reverse proxy): PHP sees plain HTTP while the
+ * browser is on HTTPS, so every URL we build comes out as http:// and the
+ * browser blocks it as mixed content. Also check the forwarded-proto header
+ * and is_ssl(), which covers FORCE_SSL setups and port 443.
+ */
+function pys_is_request_secure() {
+    if ( isset( $_SERVER['HTTPS'] ) && strtolower( $_SERVER['HTTPS'] ) === 'on' ) {
+        return true;
+    }
 
+    if ( ! empty( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) ) {
+        // Proxy chains send a comma-separated list, e.g. "https, http".
+        $forwarded = explode( ',', $_SERVER['HTTP_X_FORWARDED_PROTO'] );
+        if ( strtolower( trim( $forwarded[0] ) ) === 'https' ) {
+            return true;
+        }
+    }
+
+    return is_ssl();
+}
+
+/**
+ * Request scheme with "://" appended, ready to prepend to host + REQUEST_URI.
+ */
+function pys_get_request_protocol() {
+    return pys_is_request_secure() ? 'https://' : 'http://';
+}
+
+/**
+ * Strip the query string and fragment from a URL.
+ * Used to keep referrer_url free of tracking/PII params before
+ * storage or sending to Meta CAPI.
+ */
+function pys_strip_url_query_and_fragment( $url ) {
+    if ( empty( $url ) ) {
+        return '';
+    }
+    $clean = strtok( (string) $url, '?#' );
+    return is_string( $clean ) ? $clean : '';
+}
+
+/**
+ * Absolute URL of the page currently being requested.
+ *
+ * @param bool $with_query Keep the query string. Pass false for the
+ *                         origin+path form the frontend JS writes into the
+ *                         select_prod_list cookie (url.origin + url.pathname),
+ *                         so PHP-side comparisons can match it.
+ */
+function pys_get_current_page_url( $with_query = true ) {
+    $host = ! empty( $_SERVER['HTTP_HOST'] )
+        ? $_SERVER['HTTP_HOST']
+        : parse_url( get_site_url(), PHP_URL_HOST );
+    $uri = isset( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '';
+    $url = pys_get_request_protocol() . $host . $uri;
+
+    return $with_query ? $url : pys_strip_url_query_and_fragment( $url );
+}
+
+/**
+ * Read the session-entry referrer URL captured by the frontend JS.
+ *
+ * The frontend stores the visitor's first external referrer of the session
+ * in the `pys_session_entry_referrer` session cookie. This helper is the
+ * LAST-resort fallback for orphan server-only events that arrive without
+ * a per-page payload (e.g. async loopback without snapshot, cron jobs).
+ *
+ * @return string Validated absolute URL, or '' when missing/invalid.
+ */
+/**
+ * Is the current request one where nobody is waiting for a response?
+ *
+ * Queue processing runs on WP-Cron, so there we can afford to wait a long time
+ * for a platform to answer. In a normal page or AJAX request a visitor is on the
+ * other end and the timeout has to be a limit, not a hope.
+ *
+ * @return bool
+ */
+function pys_is_background_request() {
+    if ( function_exists( 'wp_doing_cron' ) && wp_doing_cron() ) {
+        return true;
+    }
+    if ( defined( 'DOING_CRON' ) && DOING_CRON ) {
+        return true;
+    }
+    // Set once a response has been handed to the client via
+    // fastcgi_finish_request(): from that point the request is background work.
+    if ( defined( 'PYS_RESPONSE_DETACHED' ) && PYS_RESPONSE_DETACHED ) {
+        return true;
+    }
+
+    return PHP_SAPI === 'cli';
+}
+
+/**
+ * Hand the response to the client and keep this PHP worker running.
+ *
+ * Call it once the body is fully written (e.g. on late `shutdown`). Without
+ * fastcgi_finish_request()/litespeed_finish_request() nothing can be detached,
+ * so only ignore_user_abort() is set and the visitor keeps waiting.
+ *
+ * @return bool True when the connection was released.
+ */
+function pys_detach_response() {
+    ignore_user_abort( true );
+
+    if ( function_exists( 'fastcgi_finish_request' ) ) {
+        $finish = 'fastcgi_finish_request';
+    } elseif ( function_exists( 'litespeed_finish_request' ) ) {
+        $finish = 'litespeed_finish_request';
+    } else {
+        return false;
+    }
+
+    // Fixed number of levels, like wp_ob_end_flush_all(): a buffer callback
+    // that re-opens a buffer must not trap us in an endless loop.
+    $levels = ob_get_level();
+    for ( $i = 0; $i < $levels; $i++ ) {
+        @ob_end_flush();
+    }
+    flush();
+
+    $finish();
+
+    // Nobody waits any more, so outgoing requests may use the background
+    // timeouts (see pys_is_background_request()).
+    if ( ! defined( 'PYS_RESPONSE_DETACHED' ) ) {
+        define( 'PYS_RESPONSE_DETACHED', true );
+    }
+
+    return true;
+}
+
+/**
+ * Run $task after the REST response has reached the visitor.
+ *
+ * WP REST echoes the JSON in serve_request() and then die()s, so by `shutdown`
+ * the body is already written; wp_ob_end_flush_all() runs at priority 1.
+ *
+ * This only improves the VISITOR's latency. The FPM worker stays busy for the
+ * whole API call, so it does not reduce server load; the bot gate does that.
+ *
+ * Outside REST (or with the filter off) the task runs immediately.
+ *
+ * @param callable $task
+ */
+function pys_run_after_rest_response( $task ) {
+    if ( ! defined( 'REST_REQUEST' ) || ! REST_REQUEST
+        || ! apply_filters( 'pys_rest_send_after_response', true ) ) {
+        call_user_func( $task );
+        return;
+    }
+
+    // The client may hang up once it has its answer; the task must survive it.
+    ignore_user_abort( true );
+
+    add_action( 'shutdown', function () use ( $task ) {
+        pys_detach_response();
+        // A slow platform API must not be cut off by max_execution_time.
+        @set_time_limit( 60 );
+        try {
+            call_user_func( $task );
+        } catch ( \Throwable $e ) {
+            // The task reports its own failures; this only keeps shutdown quiet.
+        }
+    }, 1000 );
+}
+
+/**
+ * Total transfer timeout, in seconds, for an outgoing server-side event request.
+ *
+ * Deliberately generous: these calls carry conversion data we do not want to
+ * lose, and platform APIs are occasionally slow without being broken. The point
+ * is to have an upper bound at all — several of these requests previously ran
+ * with no limit whatsoever, so a hung connection could hold a checkout request
+ * (or the whole queue batch) for as long as PHP allowed.
+ *
+ * Filter with pys_server_request_timeout to raise or lower it; the second
+ * argument tells you whether this is a background (cron/CLI) request.
+ *
+ * @return int
+ */
+function pys_server_request_timeout() {
+    $background = pys_is_background_request();
+    $timeout    = $background ? 20 : 10;
+
+    $timeout = (int) apply_filters( 'pys_server_request_timeout', $timeout, $background );
+
+    return max( 1, $timeout );
+}
+
+/**
+ * Connection-establishment timeout, in seconds, for the same requests.
+ *
+ * Kept well below the total timeout: failing to open a socket at all is a
+ * different kind of problem from a slow response, and it is the case that hurts
+ * most when DNS or routing is broken.
+ *
+ * @return int
+ */
+function pys_server_connect_timeout() {
+    $background = pys_is_background_request();
+    $timeout    = $background ? 10 : 5;
+
+    $timeout = (int) apply_filters( 'pys_server_connect_timeout', $timeout, $background );
+
+    return max( 1, $timeout );
+}
+
+/**
+ * Validate a URL that we only ever pass along to an ads platform as a string.
+ *
+ * wp_http_validate_url() must NOT be used for this. It is meant for vetting the
+ * target of an outgoing request, so whenever the host differs from home_url() it
+ * calls gethostbyname() to check the address is not private. Our referrer URLs
+ * are external by construction — the frontend only stores a session-entry
+ * referrer when its host differs from the site's — so every validation turned
+ * into a blocking DNS lookup on the critical path of building a server event.
+ * gethostbyname() has no PHP-level timeout: with a slow or unreachable resolver
+ * it blocks for whole seconds (5s per attempt by default), and hosts without a
+ * local caching resolver pay it on every single call.
+ *
+ * We never fetch these URLs, so a syntax check is all that is required.
+ *
+ * @param string $url
+ * @return bool
+ */
+function pys_is_valid_public_url( $url ) {
+    if ( ! is_string( $url ) || $url === '' ) {
+        return false;
+    }
+
+    $parts = wp_parse_url( $url );
+    if ( empty( $parts['scheme'] ) || empty( $parts['host'] ) ) {
+        return false;
+    }
+    if ( ! in_array( strtolower( $parts['scheme'] ), array( 'http', 'https' ), true ) ) {
+        return false;
+    }
+    if ( isset( $parts['user'] ) || isset( $parts['pass'] ) ) {
+        return false;
+    }
+    if ( strpbrk( $parts['host'], ':#?[]' ) !== false ) {
+        return false;
+    }
+
+    return (bool) filter_var( $url, FILTER_VALIDATE_URL );
+}
+
+function pys_get_session_entry_referrer_url() {
+    // Memoized: $_COOKIE cannot change mid-request, and this is called once per
+    // server event built.
+    static $cached = null;
+    if ( $cached !== null ) {
+        return $cached;
+    }
+    $cached = '';
+
+    if ( ! empty( $_COOKIE['pys_session_entry_referrer'] ) ) {
+        $url = esc_url_raw( wp_unslash( $_COOKIE['pys_session_entry_referrer'] ) );
+        $url = pys_strip_url_query_and_fragment( $url );
+        if ( $url && pys_is_valid_public_url( $url ) ) {
+            $cached = $url;
+        }
+    }
+    return $cached;
+}
+
+/**
+ * Snapshot the per-page referrer for an event being created server-side.
+ *
+ * Reads `$_SERVER['HTTP_REFERER']` of the CURRENT synchronous request — this
+ * is the URL of the page where the event actually happened, which is what
+ * Meta's `referrer_url` expects. MUST be called synchronously, at the moment
+ * the SingleEvent is created (Woo/EDD hooks, form handlers, template-driven
+ * events). Inside an async loopback handler this value belongs to the
+ * loopback request itself and is meaningless — never call from there.
+ *
+ * @return string Validated absolute URL, or '' when missing/invalid.
+ */
+function pys_snapshot_event_referrer_url() {
+    // Memoized: $_SERVER['HTTP_REFERER'] is fixed for the request, and one
+    // add-to-cart builds an event per pixel.
+    static $cached = null;
+    if ( $cached !== null ) {
+        return $cached;
+    }
+    $cached = '';
+
+    if ( ! empty( $_SERVER['HTTP_REFERER'] ) ) {
+        $url = esc_url_raw( wp_unslash( $_SERVER['HTTP_REFERER'] ) );
+        $url = pys_strip_url_query_and_fragment( $url );
+        if ( $url && pys_is_valid_public_url( $url ) ) {
+            $cached = $url;
+        }
+    }
+    return $cached;
+}
+
+/**
+ * Resolve the final, clean, validated referrer_url for a server event.
+ *
+ * Sources, in order:
+ *   1. SingleEvent payload — per-page value snapshotted either from
+ *      the browser REST/AJAX payload or from
+ *      pys_snapshot_event_referrer_url() in a synchronous
+ *      Woo/EDD hook at event creation time.
+ *   2. pys_get_session_entry_referrer_url() — last-resort fallback
+ *      for orphan events (async loopback without snapshot, cron).
+ *
+ * Returns '' when no source yields a valid URL or consent is missing.
+ * $_SERVER['HTTP_REFERER'] is never consulted here.
+ *
+ * @param \PixelYourSite\SingleEvent $event
+ * @param string                     $platform Pixel slug whose consent applies.
+ * @return string
+ */
+function pys_resolve_event_referrer_url( $event, $platform = 'facebook' ) {
+    if ( ! Consent()->checkConsent( $platform ) ) {
+        return '';
+    }
+
+    $url = '';
+    if ( $event && method_exists( $event, 'getPayloadValue' ) ) {
+        $url = (string) $event->getPayloadValue( 'referrer_url' );
+    }
+    if ( $url === '' ) {
+        $url = pys_get_session_entry_referrer_url();
+    }
+    if ( $url === '' ) {
+        return '';
+    }
+
+    $url = esc_url_raw( $url );
+    $url = pys_strip_url_query_and_fragment( $url );
+
+    if ( $url && pys_is_valid_public_url( $url ) ) {
+        return $url;
+    }
+    return '';
+}
+
+/**
+ * Check if EDD Recurring plugin is active.
+ * Uses static caching to prevent repeated checks.
+ *
+ * @return bool
+ */
+function isEddRecurringActive() {
+    static $cache = null;
+
+    if ( $cache !== null ) {
+        return $cache;
+    }
+
+    if ( ! function_exists( 'is_plugin_active' ) ) {
+        include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
+    }
+
+    $cache = is_plugin_active( 'edd-recurring/edd-recurring.php' );
+    return $cache;
+}
+
+/**
+ * Check if EDD Software Licensing plugin is active.
+ * Uses static caching to prevent repeated checks.
+ *
+ * @return bool
+ */
+function isEddSoftwareLicensingActive() {
+    static $cache = null;
+
+    if ( $cache !== null ) {
+        return $cache;
+    }
+
+    if ( ! function_exists( 'is_plugin_active' ) ) {
+        include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
+    }
+
+    $cache = is_plugin_active( 'edd-software-licensing/edd-software-licenses.php' );
+    return $cache;
+}
+
+/**
+ * Check if WooCommerce Subscriptions plugin is active.
+ * Uses static caching to prevent repeated checks.
+ *
+ * @return bool
+ */
+function isWooCommerceSubscriptionsActive() {
+    static $cache = null;
+
+    if ( $cache !== null ) {
+        return $cache;
+    }
+
+    if ( ! function_exists( 'is_plugin_active' ) ) {
+        include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
+    }
+
+    $cache = is_plugin_active( 'woocommerce-subscriptions/woocommerce-subscriptions.php' );
+    return $cache;
+}
 function isWcfActive() {
     return function_exists('wcf');
 }
@@ -41,6 +448,13 @@ function getUserRoles() {
 }
 
 function isPinterestVersionIncompatible() {
+    // get_plugin_data() opens the plugin file and parses its header on every call, and
+    // this sits behind the is*Active() checks every pixel asks while building each
+    // event. A plugin's version cannot change within a request.
+    static $incompatible = null;
+    if ( null !== $incompatible ) {
+        return $incompatible;
+    }
     
     if ( ! function_exists( 'get_plugin_data' ) ) {
         include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
@@ -48,7 +462,9 @@ function isPinterestVersionIncompatible() {
     
     $data = get_plugin_data( WP_PLUGIN_DIR . '/pixelyoursite-pinterest/pixelyoursite-pinterest.php', false, false );
     
-    return ! version_compare( $data['Version'], PYS_FREE_PINTEREST_MIN_VERSION, '>=' );
+    $incompatible = ! version_compare( $data['Version'], PYS_FREE_PINTEREST_MIN_VERSION, '>=' );
+
+    return $incompatible;
     
 }
 
@@ -87,6 +503,13 @@ function isBingActive( $checkCompatibility = true ) {
 }
 
 function isBingVersionIncompatible() {
+    // get_plugin_data() opens the plugin file and parses its header on every call, and
+    // this sits behind the is*Active() checks every pixel asks while building each
+    // event. A plugin's version cannot change within a request.
+    static $incompatible = null;
+    if ( null !== $incompatible ) {
+        return $incompatible;
+    }
 
     if ( ! function_exists( 'get_plugin_data' ) ) {
         include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
@@ -94,8 +517,606 @@ function isBingVersionIncompatible() {
 
     $data = get_plugin_data( WP_PLUGIN_DIR . '/pixelyoursite-bing/pixelyoursite-bing.php', false, false );
 
-    return ! version_compare( $data['Version'], PYS_FREE_BING_MIN_VERSION, '>=' );
+    $incompatible = ! version_compare( $data['Version'], PYS_FREE_BING_MIN_VERSION, '>=' );
 
+    return $incompatible;
+
+}
+
+/**
+ * Check if Reddit plugin installed and activated.
+ * @param bool $checkCompatibility
+ * @return bool
+ */
+function isRedditActive( bool $checkCompatibility = true ): bool {
+
+	if ( !function_exists( 'is_plugin_active' ) ) {
+		include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
+	}
+
+	$active = is_plugin_active( 'pixelyoursite-reddit/pixelyoursite-reddit.php' );
+
+	if ( $checkCompatibility ) {
+		return $active && !isRedditVersionIncompatible()
+		       && function_exists( 'PixelYourSite\Reddit' )
+		       && Reddit() instanceof Plugin; // false for dummy
+	} else {
+		return $active;
+	}
+}
+
+/**
+ * Check if Reddit plugin version is compatible.
+ * @return bool
+ */
+function isRedditVersionIncompatible(): bool {
+	// get_plugin_data() opens the plugin file and parses its header on every call, and
+	// this sits behind the is*Active() checks every pixel asks while building each
+	// event. A plugin's version cannot change within a request.
+	static $incompatible = null;
+	if ( null !== $incompatible ) {
+		return $incompatible;
+	}
+
+	if ( !function_exists( 'get_plugin_data' ) ) {
+		include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
+	}
+
+	$data = get_plugin_data( WP_PLUGIN_DIR . '/pixelyoursite-reddit/pixelyoursite-reddit.php', false, false );
+
+	$incompatible = ! version_compare( $data[ 'Version' ], PYS_FREE_REDDIT_MIN_VERSION, '>=' );
+
+	return $incompatible;
+}
+
+/**
+ * Check if Pixel Cost of goods plugin installed and activated.
+ * Uses static caching to prevent repeated checks.
+ *
+ * @return bool
+ */
+function isPixelCogActive() {
+    static $cache = null;
+    if ( $cache !== null ) {
+        return $cache;
+    }
+    if ( ! function_exists( 'is_plugin_active' ) ) {
+        include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
+    }
+    $active = is_plugin_active( 'pixel-cost-of-goods/pixel-cost-of-goods.php' );
+
+    // Agency Mode: a HARD-blocked Cost of Goods behaves as if deactivated, so its
+    // integration inside PixelYourSite (profit calc, toggles, columns) turns off.
+    if ( $active ) {
+        $block = get_option( 'pys_am_pixel-cost-of-goods_domain_block' );
+        if ( is_array( $block ) && ! empty( $block['blocked'] ) && isset( $block['type'] ) && 'hard' === $block['type'] ) {
+            $active = false;
+        }
+    }
+
+    $cache = $active;
+    return $cache;
+}
+
+/**
+ * Check if WooCommerce native Cost of Goods (COGS) is available.
+ * Requires WooCommerce 10.3 or later.
+ * Uses static caching to prevent repeated reflection calls.
+ *
+ * @return bool
+ */
+function isWcCogAvailable() {
+    static $cache = null;
+    if ( $cache !== null ) {
+        return $cache;
+    }
+    $cache = method_exists( 'WC_Order', 'get_cogs_total_value' );
+    return $cache;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global COG (Cost of Goods) helpers
+// All COG logic for events and ConversionProfit goes through these functions.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Check if the WooCommerce native COGS feature flag is enabled by the user.
+ * Requires WooCommerce 8.3+ (FeaturesUtil) and COGS enabled in
+ * WooCommerce → Settings → Advanced → Features.
+ *
+ * @return bool
+ */
+function isWcCogFeatureEnabled() {
+    static $cache = null;
+    if ( $cache !== null ) {
+        return $cache;
+    }
+    if ( ! class_exists( '\Automattic\WooCommerce\Utilities\FeaturesUtil' ) ) {
+        $cache = false;
+        return $cache;
+    }
+    $cache = \Automattic\WooCommerce\Utilities\FeaturesUtil::feature_is_enabled( 'cost_of_goods_sold' );
+    return $cache;
+}
+
+/**
+ * Return the active COG source selected in the global setting.
+ *
+ * @return string 'pixel_cog' | 'wc_cog'
+ */
+function pys_cog_get_source() {
+    return PYS()->getOption( 'woo_cog_source' ) ?: 'pixel_cog';
+}
+
+/**
+ * Check whether the currently selected COG source is fully available and ready.
+ * - 'wc_cog'    → WooCommerce 10.3+ AND feature flag enabled in WC Settings.
+ * - 'pixel_cog' → PixelYourSite Cost of Goods plugin active.
+ *
+ * @return bool
+ */
+function pys_cog_source_is_available() {
+    $source = pys_cog_get_source();
+    if ( $source === 'wc_cog' ) {
+        return isWcCogAvailable() && isWcCogFeatureEnabled();
+    }
+    return isPixelCogActive();
+}
+
+/**
+ * Calculate profit (price − COG) for a single product line.
+ * Works for both 'wc_cog' and 'pixel_cog' sources.
+ *
+ * For 'wc_cog': amount = tax-adjusted price × qty, cog = $product->get_cogs_value() × qty.
+ * For 'pixel_cog': delegates to pys_woo_get_cog_product_value() (PYS COG cascade).
+ *
+ * Returns '' (empty string) when no COG data is found, so callers can fall back to price.
+ *
+ * @param \WC_Product $product
+ * @param int         $quantity
+ * @param float|string $price   Unit price (before tax adjustments).
+ * @return float|string Profit value, or '' if unavailable.
+ */
+function pys_cog_get_product_profit( $product, $quantity, $price ) {
+    if ( ! pys_cog_source_is_available() ) {
+        return '';
+    }
+
+    if ( pys_cog_get_source() === 'wc_cog' ) {
+        $cogs_value = $product->get_cogs_value();
+        if ( $cogs_value === null ) {
+            return '';
+        }
+        $price_args = [ 'qty' => $quantity, 'price' => $price ];
+        // For wc_cog: tax inclusion is controlled by our own option, not the PYS COG plugin setting
+        if ( PYS()->getOption( 'woo_cog_wc_include_tax' ) ) {
+            $amount = wc_get_price_including_tax( $product, $price_args );
+        } else {
+            $amount = wc_get_price_excluding_tax( $product, $price_args );
+        }
+        $profit = (float) $amount - ( (float) $cogs_value * (int) $quantity );
+        return formatPriceTrimZeros( $profit );
+    }
+
+    // pixel_cog: delegate to existing PYS COG cascade function
+    return pys_woo_get_cog_product_value( $product, $quantity, $price );
+}
+
+/**
+ * Calculate total profit for a WooCommerce order.
+ * Works for both 'wc_cog' and 'pixel_cog' sources.
+ *
+ * For 'wc_cog':
+ *   profit = subtotal − cogs_total [+ tax] [+ shipping]
+ *   tax/shipping inclusion controlled by woo_cog_wc_include_tax / woo_cog_wc_include_shipping.
+ *
+ * For 'pixel_cog':
+ *   Uses pre-calculated '_pixel_cost_of_goods_order_profit' order meta (stored by COG plugin).
+ *   Falls back to per-product cascade calculation if meta is absent.
+ *
+ * Returns 0.0 when profit cannot be determined.
+ *
+ * @param \WC_Order $order
+ * @return float
+ */
+function pys_cog_get_order_profit( $order ) {
+    if ( ! pys_cog_source_is_available() ) {
+        return 0.0;
+    }
+
+    if ( pys_cog_get_source() === 'wc_cog' ) {
+        $cogs_total = (float) $order->get_cogs_total_value();
+        $subtotal   = (float) $order->get_subtotal();
+        $profit     = $subtotal - $cogs_total;
+        if ( PYS()->getOption( 'woo_cog_wc_include_tax' ) ) {
+            $profit += (float) $order->get_total_tax();
+        }
+        if ( PYS()->getOption( 'woo_cog_wc_include_shipping' ) ) {
+            $profit += (float) $order->get_shipping_total();
+        }
+        return max( 0.0, round( $profit, 2 ) );
+    }
+
+    // pixel_cog: prefer pre-calculated meta stored by the COG plugin on order save
+    $profit = $order->get_meta( '_pixel_cost_of_goods_order_profit', true );
+    if ( $profit !== '' && $profit !== false && is_numeric( $profit ) ) {
+        return round( (float) $profit, 2 );
+    }
+
+    $calculated = getAvailableProductCogOrder( $order );
+    return is_numeric( $calculated ) ? round( (float) $calculated, 2 ) : 0.0;
+}
+
+/**
+ * Resolve Cost of Goods for a single product with 4-level cascade fallback:
+ *   1. Product meta  →  2. Parent variation meta  →  3. Category meta  →  4. Global option
+ *
+ * @param \WC_Product $product
+ * @return array{type: string, val: string}
+ */
+function getAvailableProductCog( $product ) {
+    $product_id   = $product->get_id();
+    $cost_type    = get_post_meta( $product_id, '_pixel_cost_of_goods_cost_type', true );
+    $product_cost = get_post_meta( $product_id, '_pixel_cost_of_goods_cost_val', true );
+
+    // Level 2: parent variation
+    if ( ! $product_cost && $product->is_type( 'variation' ) ) {
+        $parent_id    = $product->get_parent_id();
+        $cost_type    = get_post_meta( $parent_id, '_pixel_cost_of_goods_cost_type', true );
+        $product_cost = get_post_meta( $parent_id, '_pixel_cost_of_goods_cost_val', true );
+    }
+
+    if ( $product_cost ) {
+        return [ 'type' => $cost_type, 'val' => $product_cost ];
+    }
+
+    // Level 3: category — single query via get_product_cog_by_cat()
+    $cat_cog = get_product_cog_by_cat( $product_id );
+    if ( $cat_cog['val'] ) {
+        return [ 'type' => $cat_cog['type'], 'val' => $cat_cog['val'] ];
+    }
+
+    // Level 4: global option
+    return [
+        'type' => get_option( '_pixel_cost_of_goods_cost_type' ),
+        'val'  => get_option( '_pixel_cost_of_goods_cost_val' ),
+    ];
+}
+
+
+function getAvailableProductCogOrder( $order ) {
+    // ── WooCommerce native COGS path ──────────────────────────────────────────
+    if ( pys_cog_get_source() === 'wc_cog' && isWcCogAvailable() && isWcCogFeatureEnabled() ) {
+        // For wc_cog: tax inclusion controlled by our own option, not the PYS COG plugin setting
+        $wc_include_tax = PYS()->getOption( 'woo_cog_wc_include_tax' );
+        $order_total    = 0.0;
+        $cost           = 0.0;
+        foreach ( $order->get_items() as $item_id => $item ) {
+            $product_id = ( isset( $item['variation_id'] ) && 0 != $item['variation_id'] ? $item['variation_id'] : $item['product_id'] );
+            $product = wc_get_product($product_id);
+            if(!$product) continue;
+
+            $args = array( 'qty'   => 1, 'price' => $product->get_price());
+            $price = 0;
+            $qlt = $item['quantity'] ?? 1;
+
+            if($wc_include_tax) {
+                $price = wc_get_price_excluding_tax($product, $args);
+            } else {
+                $price = wc_get_price_including_tax($product,$args);
+            }
+            $order_total += (float) $price;
+
+            $cogs_value = $product->get_cogs_value();
+            if ( $cogs_value === null ) continue;
+            $cost += (float) $cogs_value * (int) $qlt;
+        }
+        return $order_total - $cost;
+    }
+
+    // ── PYS COG plugin path ───────────────────────────────────────────────────
+    // For pixel_cog: tax inclusion controlled by the PYS COG plugin's own setting
+    $isWithoutTax = get_option( '_pixel_cog_tax_calculating' ) == 'no';
+    $order_total  = 0.0;
+    $cost         = 0.0;
+    $custom_total = 0.0;
+    $cat_isset    = 0;
+    $notice       = '';
+    // Read global fallback values once before the loop
+    $global_cost  = get_option( '_pixel_cost_of_goods_cost_val' );
+    $global_type  = get_option( '_pixel_cost_of_goods_cost_type' );
+
+    foreach ( $order->get_items() as $item_id => $item ) {
+        $product_id = ( isset( $item['variation_id'] ) && 0 != $item['variation_id'] ? $item['variation_id'] : $item['product_id'] );
+        $product = wc_get_product($product_id);
+        if(!$product) continue;
+
+        // what the customer paid for the line, as in Pro and in the COG plugin
+        $order_total += (float) $item->get_total();
+        if ( ! $isWithoutTax ) {
+            $order_total += (float) $item->get_total_tax();
+        }
+
+        $product_id    = $product->get_id();
+
+        $cost_type    = get_post_meta( $product_id, '_pixel_cost_of_goods_cost_type', true );
+        $product_cost = get_post_meta( $product_id, '_pixel_cost_of_goods_cost_val', true );
+
+        if ( ! $product_cost && $product->is_type( 'variation' ) ) {
+            $cost_type    = get_post_meta( $product->get_parent_id(), '_pixel_cost_of_goods_cost_type', true );
+            $product_cost = get_post_meta( $product->get_parent_id(), '_pixel_cost_of_goods_cost_val', true );
+        }
+
+        $qlt   = $item['quantity'];
+        // a percent cost is a share of the line subtotal, like the COG plugin: discounted, before coupons
+        $price = pys_woo_line_unit_price( $item->get_subtotal(), $item->get_subtotal_tax(), $qlt, ! $isWithoutTax );
+        if ( $price === false ) {
+            $price_args = [ 'qty' => 1, 'price' => $product->get_price() ];
+            $price      = $isWithoutTax
+                ? wc_get_price_excluding_tax( $product, $price_args )
+                : wc_get_price_including_tax( $product, $price_args );
+        }
+
+        if ( $product_cost ) {
+            $cost         += ( $cost_type == 'percent' ) ? $price * ( (float) $product_cost / 100 ) * $qlt : (float) $product_cost * $qlt;
+            $custom_total += $price * $qlt;
+        } else {
+            // Single query for both val + type via the combined category helper
+            $cat_cog      = get_product_cog_by_cat( $product_id );
+            $product_cost = $cat_cog['val'];
+            $cost_type    = $cat_cog['type'];
+            if ( $product_cost ) {
+                $cost         += ( $cost_type == 'percent' ) ? $price * ( (float) $product_cost / 100 ) * $qlt : (float) $product_cost * $qlt;
+                $custom_total += $price * $qlt;
+                $notice        = 'Category Cost of Goods was used for some products.';
+                $cat_isset     = 1;
+            } elseif ( $global_cost ) {
+                $cost         += ( $global_type == 'percent' ) ? (float) $price * ( (float) $global_cost / 100 ) * $qlt : (float) $global_cost * $qlt;
+                $custom_total += $price * $qlt;
+                $notice        = $cat_isset ? 'Global and Category Cost of Goods was used for some products.' : 'Global Cost of Goods was used for some products.';
+            } else {
+                $notice = "Some products don't have Cost of Goods.";
+            }
+        }
+    }
+
+    return $order_total - $cost;
+}
+function getProductCogOrder( $args ) {
+    if ( ! isPixelCogActive() ) {
+        return [ 'cost' => 0, 'profit' => 0 ];
+    }
+
+    $order_total  = 0.0;
+    $cost         = 0.0;
+    $custom_total = 0.0;
+    $isWithoutTax = get_option( '_pixel_cog_tax_calculating' ) == 'no';
+    // Read global fallback values once before the loop
+    $global_cost  = get_option( '_pixel_cost_of_goods_cost_val' );
+    $global_type  = get_option( '_pixel_cost_of_goods_cost_type' );
+
+    foreach ( $args['products'] as $productData ) {
+        $order_total += (float) $productData['total'];
+        if ( ! $isWithoutTax ) {
+            $order_total += (float) $productData['total_tax'];
+        }
+
+        $product_id    = $productData['product_id'];
+        $productObject = wc_get_product( $product_id );
+        if ( ! $productObject ) continue;
+
+        $cost_type    = get_post_meta( $productObject->get_id(), '_pixel_cost_of_goods_cost_type', true );
+        $product_cost = get_post_meta( $productObject->get_id(), '_pixel_cost_of_goods_cost_val', true );
+
+        if ( ! $product_cost && $productObject->is_type( 'variation' ) ) {
+            $cost_type    = get_post_meta( $productObject->get_parent_id(), '_pixel_cost_of_goods_cost_type', true );
+            $product_cost = get_post_meta( $productObject->get_parent_id(), '_pixel_cost_of_goods_cost_val', true );
+        }
+
+        $qlt   = $productData['quantity'];
+        // a percent cost is a share of the line subtotal, like the COG plugin: discounted, before coupons
+        $price = pys_woo_line_unit_price( $productData['subtotal'] ?? null, $productData['subtotal_tax'] ?? 0, $qlt, ! $isWithoutTax );
+        if ( $price === false ) {
+            $price_args = [ 'qty' => 1, 'price' => $productObject->get_price() ];
+            $price      = $isWithoutTax
+                ? wc_get_price_excluding_tax( $productObject, $price_args )
+                : wc_get_price_including_tax( $productObject, $price_args );
+        }
+
+        if ( $product_cost ) {
+            $cost         += ( $cost_type == 'percent' ) ? $price * ( (float) $product_cost / 100 ) * $qlt : (float) $product_cost * $qlt;
+            $custom_total += $price * $qlt;
+        } else {
+            // Single query for both val + type via the combined category helper
+            $cat_cog      = get_product_cog_by_cat( $product_id );
+            $product_cost = $cat_cog['val'];
+            $cost_type    = $cat_cog['type'];
+            if ( $product_cost ) {
+                $cost         += ( $cost_type == 'percent' ) ? $price * ( (float) $product_cost / 100 ) * $qlt : (float) $product_cost * $qlt;
+                $custom_total += $price * $qlt;
+            } elseif ( $global_cost ) {
+                $cost         += ( $global_type == 'percent' ) ? (float) $price * ( (float) $global_cost / 100 ) * $qlt : (float) $global_cost * $qlt;
+                $custom_total += $price * $qlt;
+            }
+        }
+    }
+
+    return [ 'cost' => $cost, 'profit' => $custom_total - $cost ];
+}
+
+function getAvailableProductCogCart() {
+    if ( ! isWooCartAvailable() ) return '';
+
+    $shipping        = WC()->cart->get_shipping_total();
+    $cart_total_base = WC()->cart->get_total( 'edit' ) - $shipping;
+
+    // ── WooCommerce native COGS path ──────────────────────────────────────────
+    if ( pys_cog_get_source() === 'wc_cog' && isWcCogAvailable() && isWcCogFeatureEnabled() ) {
+        // For wc_cog: tax inclusion controlled by our own option, not the PYS COG plugin setting
+        $wc_include_tax = PYS()->getOption( 'woo_cog_wc_include_tax' );
+        $cart_total     = $cart_total_base;
+        if ( $wc_include_tax ) {
+            $cart_total -= WC()->cart->get_shipping_tax(); // keep product tax, remove shipping tax
+        } else {
+            $cart_total -= WC()->cart->get_total_tax();    // remove all tax
+        }
+        $cost = 0.0;
+        foreach ( WC()->cart->cart_contents as $item ) {
+            $product_id = ( isset( $item['variation_id'] ) && 0 != $item['variation_id'] )
+                ? $item['variation_id']
+                : $item['product_id'];
+            $product = wc_get_product( $product_id );
+            if ( ! $product ) continue;
+            $cogs_value = $product->get_cogs_value();
+            if ( $cogs_value === null ) continue;
+            $cost += (float) $cogs_value * (int) $item['quantity'];
+        }
+        return $cart_total - $cost;
+    }
+
+    // ── PYS COG plugin path ───────────────────────────────────────────────────
+    // For pixel_cog: tax inclusion controlled by the PYS COG plugin's own setting
+    $isWithoutTax = get_option( '_pixel_cog_tax_calculating' ) == 'no';
+    $cart_total   = $cart_total_base;
+    if ( $isWithoutTax ) {
+        $cart_total -= WC()->cart->get_total_tax();
+    } else {
+        $cart_total -= WC()->cart->get_shipping_tax();
+    }
+
+    // Read global fallback values once before the loop
+    $global_cost  = get_option( '_pixel_cost_of_goods_cost_val' );
+    $global_type  = get_option( '_pixel_cost_of_goods_cost_type' );
+
+    $cost         = 0.0;
+    $custom_total = 0.0;
+    $cat_isset    = 0;
+    $notice       = '';
+
+    foreach ( WC()->cart->cart_contents as $cart_item_key => $item ) {
+        $product_id = ( isset( $item['variation_id'] ) && 0 != $item['variation_id'] )
+            ? $item['variation_id']
+            : $item['product_id'];
+
+        $product = wc_get_product( $product_id );
+        if ( ! $product ) continue;
+
+        $cost_type    = get_post_meta( $product->get_id(), '_pixel_cost_of_goods_cost_type', true );
+        $product_cost = get_post_meta( $product->get_id(), '_pixel_cost_of_goods_cost_val', true );
+
+        if ( ! $product_cost && $product->is_type( 'variation' ) ) {
+            $cost_type    = get_post_meta( $product->get_parent_id(), '_pixel_cost_of_goods_cost_type', true );
+            $product_cost = get_post_meta( $product->get_parent_id(), '_pixel_cost_of_goods_cost_val', true );
+        }
+
+        $qlt   = $item['quantity'];
+        // a percent cost is a share of what the customer pays for the line, which discount plugins
+        // have already set_price()'d: the same base the COG plugin uses (the line subtotal)
+        $price = pys_woo_line_unit_price( $item['line_subtotal'] ?? null, $item['line_subtotal_tax'] ?? 0, $qlt, ! $isWithoutTax );
+        if ( $price === false ) {
+            $price_args = [ 'qty' => 1, 'price' => $product->get_price() ];
+            $price      = $isWithoutTax
+                ? wc_get_price_excluding_tax( $product, $price_args )
+                : wc_get_price_including_tax( $product, $price_args );
+        }
+
+        if ( $product_cost ) {
+            $cost         += ( $cost_type == 'percent' ) ? $price * ( (float) $product_cost / 100 ) * $qlt : (float) $product_cost * $qlt;
+            $custom_total += $price * $qlt;
+        } else {
+            // Single query for both val + type via the combined category helper
+            $cat_cog      = get_product_cog_by_cat( $product_id );
+            $product_cost = $cat_cog['val'];
+            $cost_type    = $cat_cog['type'];
+            if ( $product_cost ) {
+                $cost         += ( $cost_type == 'percent' ) ? $price * ( (float) $product_cost / 100 ) * $qlt : (float) $product_cost * $qlt;
+                $custom_total += $price * $qlt;
+                $notice        = 'Category Cost of Goods was used for some products.';
+                $cat_isset     = 1;
+            } elseif ( $global_cost ) {
+                $cost         += ( $global_type == 'percent' ) ? (float) $price * ( (float) $global_cost / 100 ) * $qlt : (float) $global_cost * $qlt;
+                $custom_total += $price * $qlt;
+                $notice        = $cat_isset ? 'Global and Category Cost of Goods was used for some products.' : 'Global Cost of Goods was used for some products.';
+            } else {
+                $notice = "Some products don't have Cost of Goods.";
+            }
+        }
+    }
+
+    return $cart_total - $cost;
+}
+
+/**
+ * get_product_cog_by_cat.
+ *
+ * Fetches COG value AND type for a product from its WooCommerce categories in a single
+ * wp_get_post_terms() call. Results are cached per product_id for the duration of the request.
+ * Selects the category with the numerically highest cost value (same behaviour as the
+ * original asort/end approach, but only for categories that have a numeric value set).
+ *
+ * @param int $product_id
+ * @return array{val: string, type: string}
+ */
+function get_product_cog_by_cat( $product_id ) {
+    static $cache = [];
+    if ( isset( $cache[ $product_id ] ) ) {
+        return $cache[ $product_id ];
+    }
+
+    $empty     = [ 'val' => '', 'type' => '' ];
+    $term_list = wp_get_post_terms( $product_id, 'product_cat', [ 'fields' => 'ids' ] );
+
+    if ( empty( $term_list ) || is_wp_error( $term_list ) ) {
+        $cache[ $product_id ] = $empty;
+        return $empty;
+    }
+
+    $candidates = [];
+    foreach ( $term_list as $term_id ) {
+        $val = get_term_meta( $term_id, '_pixel_cost_of_goods_cost_val', true );
+        if ( $val !== '' && is_numeric( $val ) ) {
+            $candidates[ $term_id ] = [
+                'val'  => $val,
+                'type' => get_term_meta( $term_id, '_pixel_cost_of_goods_cost_type', true ),
+            ];
+        }
+    }
+
+    if ( empty( $candidates ) ) {
+        $cache[ $product_id ] = $empty;
+        return $empty;
+    }
+
+    // Use the category with the highest numeric cost value
+    uasort( $candidates, function ( $a, $b ) {
+        return (float) $a['val'] <=> (float) $b['val'];
+    } );
+
+    $max                  = end( $candidates );
+    $cache[ $product_id ] = $max;
+    return $max;
+}
+
+/**
+ * get_product_type_by_cat.
+ *
+ * @deprecated Use get_product_cog_by_cat() which returns both val and type in one query.
+ * @version 1.0.0
+ * @since   1.0.0
+ */
+function get_product_type_by_cat( $product_id ) {
+    return get_product_cog_by_cat( $product_id )['type'];
+}
+
+/**
+ * get_product_cost_by_cat.
+ *
+ * @deprecated Use get_product_cog_by_cat() which returns both val and type in one query.
+ * @version 1.0.0
+ * @since   1.0.0
+ */
+function get_product_cost_by_cat( $product_id ) {
+    return get_product_cog_by_cat( $product_id )['val'];
 }
 
 /**
@@ -105,6 +1126,19 @@ function isBingVersionIncompatible() {
  */
 function isWooCommerceActive() {
     return class_exists( 'woocommerce' );
+}
+
+/**
+ * Check if WooCommerce cart is initialized and safe to use.
+ *
+ * WC()->cart stays null on requests where WooCommerce does not load the cart
+ * (admin, cron, REST, or when a third-party plugin disables cart/session
+ * loading on the front-end), so every cart access must be guarded.
+ *
+ * @return bool
+ */
+function isWooCartAvailable() {
+    return isWooCommerceActive() && function_exists( 'WC' ) && WC() !== null && WC()->cart !== null;
 }
 
 /**
@@ -141,21 +1175,6 @@ function isBoostActive() {
 	}
 
 	return is_plugin_active( 'boost/boost.php' );
-
-}
-
-/**
- * Check if Pixel Cost of goods plugin installed and activated.
- *
- * @return bool
- */
-function isPixelCogActive() {
-
-	if ( ! function_exists( 'is_plugin_active' ) ) {
-		include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
-	}
-
-	return is_plugin_active( 'pixel-cost-of-goods/pixel-cost-of-goods.php' );
 
 }
 
@@ -225,231 +1244,6 @@ function getAvailableUserRoles() {
 
 }
 
-function getAvailableProductCog($product) {
-
-    $cost_type = get_post_meta( $product->get_id(), '_pixel_cost_of_goods_cost_type', true );
-    $product_cost = get_post_meta( $product->get_id(), '_pixel_cost_of_goods_cost_val', true );
-
-    if(!$product_cost && $product->is_type("variation")) {
-        $cost_type = get_post_meta( $product->get_parent_id(), '_pixel_cost_of_goods_cost_type', true );
-        $product_cost = get_post_meta( $product->get_parent_id(), '_pixel_cost_of_goods_cost_val', true );
-    }
-
-
-    if ($product_cost) {
-        $cog = array(
-            'type' => $cost_type,
-            'val' => $product_cost
-        );
-    } else {
-        $cog_term_val = get_product_cost_by_cat( $product->get_id() );
-        if ($cog_term_val) {
-            $cog = array(
-                'type' => get_product_type_by_cat( $product->get_id() ),
-                'val' => $cog_term_val
-            );
-        } else {
-            $cog = array(
-                'type' => get_option( '_pixel_cost_of_goods_cost_type'),
-                'val' => get_option( '_pixel_cost_of_goods_cost_val')
-            );
-        }
-    }
-
-    return $cog;
-
-}
-
-function getAvailableProductCogOrder($order) {
-    $cost = 0;
-    $custom_total = 0;
-    $cat_isset = 0;
-    $isWithoutTax = get_option( '_pixel_cog_tax_calculating')  == 'no';
-
-    $shipping = $order->get_shipping_total("edit");
-    $order_total = $order->get_total('edit') - $shipping;
-
-    if($isWithoutTax) {
-        $order_total -=  $order->get_total_tax('edit');
-    } else {
-        $order_total -= $order->get_shipping_tax("edit");
-    }
-
-    foreach ( $order->get_items() as $item_id => $item ) {
-        $product_id = ( isset( $item['variation_id'] ) && 0 != $item['variation_id'] ? $item['variation_id'] : $item['product_id'] );
-        $product = wc_get_product($product_id);
-        if(!$product) continue;
-
-        $cost_type = get_post_meta( $product->get_id(), '_pixel_cost_of_goods_cost_type', true );
-        $product_cost = get_post_meta( $product->get_id(), '_pixel_cost_of_goods_cost_val', true );
-
-        if(!$product_cost && $product->is_type("variation")) {
-            $cost_type = get_post_meta( $product->get_parent_id(), '_pixel_cost_of_goods_cost_type', true );
-            $product_cost = get_post_meta( $product->get_parent_id(), '_pixel_cost_of_goods_cost_val', true );
-        }
-
-
-        $args = array( 'qty'   => 1, 'price' => $product->get_price());
-        $qlt = $item['quantity'];
-
-        if($isWithoutTax) {
-            $price = wc_get_price_excluding_tax($product, $args);
-        } else {
-            $price = wc_get_price_including_tax($product,$args);
-        }
-
-        if ($product_cost) {
-            $cost = ($cost_type == 'percent') ? $cost + ($price * ($product_cost / 100) * $qlt) : $cost + ($product_cost * $qlt);
-            $custom_total = $custom_total + ($price * $qlt);
-        } else {
-            $product_cost = get_product_cost_by_cat( $product_id );
-            $cost_type = get_product_type_by_cat( $product_id );
-            if ($product_cost) {
-                $cost = ($cost_type == 'percent') ? $cost + ($price * ($product_cost / 100) * $qlt) : $cost + ($product_cost * $qlt);
-                $custom_total = $custom_total + ($price * $qlt);
-                $notice = "Category Cost of Goods was used for some products.";
-                $cat_isset = 1;
-            } else {
-                $product_cost = get_option( '_pixel_cost_of_goods_cost_val');
-                $cost_type = get_option( '_pixel_cost_of_goods_cost_type' );
-                if ($product_cost) {
-                    $cost = ($cost_type == 'percent') ? (float) $cost + ((float) $price * ((float) $product_cost / 100) * $qlt) : (float) $cost + ((float) $product_cost * $qlt);
-                    $custom_total = $custom_total + ($price * $qlt);
-                    if ($cat_isset == 1) {
-                        $notice = "Global and Category Cost of Goods was used for some products.";
-                    } else {
-                        $notice = "Global Cost of Goods was used for some products.";
-                    }
-                } else {
-                    $notice = "Some products don't have Cost of Goods.";
-                }
-            }
-        }
-    }
-
-    return $order_total - $cost;
-
-}
-
-function getAvailableProductCogCart() {
-    $cart_total = 0.0;
-    $cost = 0;
-    $notice = '';
-    $custom_total = 0;
-    $cat_isset = 0;
-    $isWithoutTax = get_option( '_pixel_cog_tax_calculating')  == 'no';
-
-    $shipping = WC()->cart->get_shipping_total();
-    $cart_total = WC()->cart->get_total('edit') - $shipping;
-
-    if($isWithoutTax) {
-        $cart_total -=  WC()->cart->get_total_tax();
-    } else {
-        $cart_total -= WC()->cart->get_shipping_tax();
-    }
-
-    foreach ( WC()->cart->cart_contents as $cart_item_key => $item ) {
-        $product_id = ( isset( $item['variation_id'] ) && 0 != $item['variation_id'] ? $item['variation_id'] : $item['product_id'] );
-
-        $product = wc_get_product($product_id);
-
-        if(!$product) continue;
-
-        $cost_type = get_post_meta( $product->get_id(), '_pixel_cost_of_goods_cost_type', true );
-        $product_cost = get_post_meta( $product->get_id(), '_pixel_cost_of_goods_cost_val', true );
-
-        if(!$product_cost && $product->is_type("variation")) {
-            $cost_type = get_post_meta( $product->get_parent_id(), '_pixel_cost_of_goods_cost_type', true );
-            $product_cost = get_post_meta( $product->get_parent_id(), '_pixel_cost_of_goods_cost_val', true );
-        }
-
-        $args = array( 'qty'   => 1, 'price' => $product->get_price());
-        if($isWithoutTax) {
-            $price = wc_get_price_excluding_tax($product, $args);
-        } else {
-            $price = wc_get_price_including_tax($product,$args);
-        }
-        $qlt = $item['quantity'];
-
-
-        if ($product_cost) {
-            $cost = ($cost_type == 'percent') ? $cost + ($price * ($product_cost / 100) * $qlt) : $cost + ($product_cost * $qlt);
-            $custom_total = $custom_total + ($price * $qlt);
-        } else {
-            $product_cost = get_product_cost_by_cat( $product_id );
-            $cost_type = get_product_type_by_cat( $product_id );
-            if ($product_cost) {
-                $cost = ($cost_type == 'percent') ? $cost + ($price * ($product_cost / 100) * $qlt) : $cost + ($product_cost * $qlt);
-                $custom_total = $custom_total + ($price * $qlt);
-                $notice = "Category Cost of Goods was used for some products.";
-                $cat_isset = 1;
-            } else {
-                $product_cost = get_option( '_pixel_cost_of_goods_cost_val');
-                $cost_type = get_option( '_pixel_cost_of_goods_cost_type' );
-                if ($product_cost) {
-                    $cost = ($cost_type == 'percent') ? $cost + ((float) $price * ((float) $product_cost / 100) * $qlt) : (float) $cost + ((float) $product_cost * $qlt);
-                    $custom_total = $custom_total + ($price * $qlt);
-                    if ($cat_isset == 1) {
-                        $notice = "Global and Category Cost of Goods was used for some products.";
-                    } else {
-                        $notice = "Global Cost of Goods was used for some products.";
-                    }
-                } else {
-                    $notice = "Some products don't have Cost of Goods.";
-                }
-            }
-        }
-    }
-
-    return $cart_total - $cost;
-
-}
-
-/**
- * get_product_type_by_cat.
- *
- * @version 1.0.0
- * @since   1.0.0
- */
-function get_product_type_by_cat( $product_id ) {
-	$term_list = wp_get_post_terms($product_id,'product_cat',array('fields'=>'ids'));
-	$cost = array();
-	foreach ($term_list as $term_id) {
-		$cost[$term_id] = array(
-			get_term_meta( $term_id, '_pixel_cost_of_goods_cost_val', true ),
-			get_term_meta( $term_id, '_pixel_cost_of_goods_cost_type', true )
-		);
-	}
-	if ( empty( $cost ) ) {
-		return '';
-	} else {
-		asort( $cost );
-		$max = end( $cost );
-		return $max[1];
-	}
-}
-
-/**
- * get_product_cost_by_cat.
- *
- * @version 1.0.0
- * @since   1.0.0
- */
-function get_product_cost_by_cat( $product_id ) {
-	$term_list = wp_get_post_terms($product_id,'product_cat',array('fields'=>'ids'));
-	$cost = array();
-	foreach ($term_list as $term_id) {
-		$cost[$term_id] = get_term_meta( $term_id, '_pixel_cost_of_goods_cost_val', true );
-	}
-	if ( empty( $cost ) ) {
-		return '';
-	} else {
-		asort( $cost );
-		$max = end( $cost );
-		return $max;
-	}
-}
-
 function isDisabledForCurrentRole() {
 
 	$user = wp_get_current_user();
@@ -479,27 +1273,41 @@ function pys_round( $val, $precision = 2, $mode = PHP_ROUND_HALF_UP )  {
     return round( $val, $precision, $mode );
 }
 
-/**
- * @param string $taxonomy Taxonomy name
- *
- * @return array Array of object term names
- */
-function getObjectTerms( $taxonomy, $post_id ) {
+function getObjectTerms($taxonomy, $post_id) {
+    $terms = get_the_terms($post_id, $taxonomy);
+    if (is_wp_error($terms) || empty($terms)) {
+        return [];
+    }
 
-	$terms   = get_the_terms( $post_id, $taxonomy );
-	$results = array();
+    // Build a map of term_id => term object for quick parent lookups
+    $terms_by_id = [];
+    foreach ($terms as $term) {
+        $terms_by_id[$term->term_id] = $term;
+    }
 
-	if ( is_wp_error( $terms ) || empty ( $terms ) ) {
-		return array();
-	}
+    // Helper function to calculate the "depth" of a term in the hierarchy
+    // (how many parent levels it has)
+    $get_depth = function($term) use ($terms_by_id) {
+        $depth = 0;
+        while ($term->parent && isset($terms_by_id[$term->parent])) {
+            $term = $terms_by_id[$term->parent];
+            $depth++;
+        }
+        return $depth;
+    };
 
-	// decode special chars
-	foreach ( $terms as $term ) {
-		$results[] = html_entity_decode( $term->name );
-	}
+    // Sort terms by their depth so that parent categories come before child categories
+    usort($terms, function($a, $b) use ($get_depth) {
+        return $get_depth($a) <=> $get_depth($b);
+    });
 
-	return $results;
+    // Return an array of decoded term names
+    $results = [];
+    foreach ($terms as $term) {
+        $results[] = html_entity_decode($term->name);
+    }
 
+    return $results;
 }
 /**
  * @param string $taxonomy Taxonomy name
@@ -575,7 +1383,10 @@ function sanitizeParams( $params ) {
 		} elseif (is_numeric($value)) {
             $sanitized[ $key ] = $value;
         } else {
-			$sanitized[ $key ] = stripslashes(html_entity_decode( $value ));
+            // Do NOT html_entity_decode() here: reversing HTML encoding would
+            // re-introduce XSS-capable characters (<, >, ", ') that may have
+            // been previously encoded by upstream sanitizers/templating.
+            $sanitized[ $key ] = sanitize_text_field( stripslashes( $value ) );
 		}
 
 	}
@@ -632,9 +1443,9 @@ function getCurrentPageUrl($removeQuery = false) {
 }
 
 function removeProtocolFromUrl( $url ) {
-    
-    if ( extension_loaded( 'mbstring' ) ) {
-        
+
+    if ( extension_loaded( 'mbstring' ) && class_exists( 'URL\Normalizer' ) ) {
+
         $un = new URL\Normalizer();
         $un->setUrl( $url );
         $url = $un->normalize();
@@ -667,60 +1478,88 @@ function removeProtocolFromUrl( $url ) {
  * @return bool
  */
 function compareURLs( $url, $base = '', $rule = 'match' ) {
-    
+
     // use current page url if not set
     if ( empty( $base ) ) {
         $base = getCurrentPageUrl();
     }
-    
+
+    // Normalize base ONCE here; _compareURLsInternal receives it already clean
     $base = removeProtocolFromUrl( $base );
-    
+
+    return _compareURLsInternal( $url, $base, $rule );
+
+}
+
+/**
+ * Internal URL comparison helper. Expects $base already normalized via removeProtocolFromUrl().
+ * Avoids double normalization of $base during recursive array iteration.
+ *
+ * @param string|array $url
+ * @param string       $base  Already processed by removeProtocolFromUrl()
+ * @param string       $rule
+ *
+ * @return bool
+ */
+function _compareURLsInternal( $url, $base, $rule ) {
+
     if ( is_string( $url ) ) {
-        
+
         if ( empty( $url ) || '*' === $url ) {
             return true;
         }
-        
+
         $url = rtrim( $url, '*' );  // for backward capability
+
+        // Remember whether the user entered a path (leading slash) BEFORE
+        // normalization strips it, so "contains" can anchor to the path and
+        // not match inside the domain name (e.g. "/cart" vs "turenorthcart.com").
+        $url_had_leading_slash = ( isset( $url[0] ) && $url[0] === '/' );
+
         $url = removeProtocolFromUrl( $url );
-        
+
         if ( $rule == 'match' ) {
-            return $base == $url;
+            return rtrim( $base, '/' ) === rtrim( $url, '/' );
         }
-        
+
         if ( $rule == 'contains' ) {
-            
-            if ( $base == $url ) {
+
+            // If the user entered a path, anchor the match to the path so it
+            // cannot accidentally match inside the domain name.
+            // e.g. "/cart" must match "site.com/cart" but not "turenorthcart.com".
+            $needle = $url_had_leading_slash ? '/' . $url : $url;
+
+            if ( $base == $needle ) {
                 return true;
             }
 
-            if(empty($base) || empty($url)) {
+            if ( empty( $base ) || empty( $needle ) ) {
                 return false;
             }
-            
-            if ( strpos( $base, $url ) !== false ) {
+
+            if ( strpos( $base, $needle ) !== false ) {
                 return true;
             }
-            
+
             return false;
-            
+
         }
-        
+
         return false;
-        
+
     } else {
-        
-        // recursively compare each url
+
+        // $base is already normalized — iterate without re-normalizing
         foreach ( $url as $single_url ) {
-            
-            if ( compareURLs( $single_url['value'], $base, $single_url['rule'] ) ) {
+
+            if ( _compareURLsInternal( $single_url['value'], $base, $single_url['rule'] ) ) {
                 return true;
             }
-            
+
         }
-        
+
         return false;
-        
+
     }
 
 }
@@ -900,7 +1739,7 @@ function getPysCurrencySymbols() {
     );
 }
 
-function getStandardParams() {
+function getStandardParams( $post_id = null ) {
     global $post;
     $cpt = get_post_type();
     $params = array(
@@ -918,7 +1757,16 @@ function getStandardParams() {
         $params['event_url'] = getCurrentPageUrl(true);
     }
 
-    if(is_singular( 'post' )) {
+    // If a specific post_id is provided (e.g., during AJAX requests where
+    // WordPress conditional tags are unavailable), resolve page context directly.
+    if ( ! empty( $post_id ) && (int) $post_id > 0 ) {
+        $queried_post = get_post( (int) $post_id );
+        if ( $queried_post instanceof \WP_Post ) {
+            $params['page_title'] = $queried_post->post_title;
+            $params['post_type']  = $queried_post->post_type;
+            $params['post_id']    = $queried_post->ID;
+        }
+    } elseif(is_singular( 'post' )) {
         $params['page_title'] = $post->post_title;
         $params['post_id']   = $post->ID;
 
@@ -1006,8 +1854,8 @@ function getTrafficSource () {
         $direct = empty($referrer);
         $internal = $direct ? false : (substr($referrer, 0, strlen(site_url())) === site_url());
         $external = !$direct && !$internal;
-        $cookie = !isset($_COOKIE['pysTrafficSource']) ? null : $_COOKIE['pysTrafficSource'];
-        $session = !isset($_SESSION['TrafficSource']) ? null : $_SESSION['TrafficSource'];
+        $cookie = sanitize_text_field(!isset($_COOKIE['pysTrafficSource']) ? null : $_COOKIE['pysTrafficSource']);
+        $session = sanitize_text_field(!isset($_SESSION['TrafficSource']) ? null : $_SESSION['TrafficSource']);
         if (!$external) {
             $source = $cookie || $session ? $cookie ?? $session : 'direct';
         } else {
@@ -1046,11 +1894,11 @@ function getUtms ($seed_undefined = false) {
     $utmTerms = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
     foreach ($utmTerms as $utmTerm) {
         if(isset($_GET[$utmTerm])) {
-            $utm[$utmTerm] = filterEmails($_GET[$utmTerm]);
+            $utm[$utmTerm] = sanitize_text_field(filterEmails($_GET[$utmTerm]));
         } elseif (isset($_COOKIE["pys_".$utmTerm])) {
-            $utm[$utmTerm] =filterEmails( $_COOKIE["pys_".$utmTerm]);
+            $utm[$utmTerm] = sanitize_text_field(filterEmails( $_COOKIE["pys_".$utmTerm]));
         } elseif(isset($_SESSION['TrafficUtms']) && isset($_SESSION['TrafficUtms'][$utmTerm])){
-            $utm[$utmTerm] =filterEmails( $_SESSION['TrafficUtms'][$utmTerm]);
+            $utm[$utmTerm] = sanitize_text_field(filterEmails( $_SESSION['TrafficUtms'][$utmTerm]));
         } else {
             if($seed_undefined){
                 $utm[$utmTerm] = "undefined";
@@ -1067,11 +1915,11 @@ function getUtmsId ($seed_undefined = false) {
     $utmTerms = ['fbadid', 'gadid', 'padid', 'bingid'];
     foreach ($utmTerms as $utmTerm) {
         if(isset($_GET[$utmTerm])) {
-            $utm[$utmTerm] = filterEmails($_GET[$utmTerm]);
+            $utm[$utmTerm] = sanitize_text_field(filterEmails($_GET[$utmTerm]));
         } elseif (isset($_COOKIE["pys_".$utmTerm])) {
-            $utm[$utmTerm] =filterEmails( $_COOKIE["pys_".$utmTerm]);
+            $utm[$utmTerm] = sanitize_text_field(filterEmails( $_COOKIE["pys_".$utmTerm]));
         } elseif(isset($_SESSION['TrafficUtmsId']) &&  isset($_SESSION['TrafficUtmsId'][$utmTerm])){
-            $utm[$utmTerm] =filterEmails( $_SESSION['TrafficUtmsId'][$utmTerm]);
+            $utm[$utmTerm] = sanitize_text_field(filterEmails( $_SESSION['TrafficUtmsId'][$utmTerm]));
         } else {
             if($seed_undefined){
                 $utm[$utmTerm] = "undefined";
@@ -1101,6 +1949,248 @@ function getBrowserTime(){
 }
 
 /**
+ * Pixel-option keys that carry visitor PII (email, phone, name, address) into the
+ * localized pysOptions object, and therefore into the page HTML. When
+ * 'fetch_user_data_via_rest' is enabled these are emptied before the options are
+ * printed and delivered per-visitor by the pys/v1/dynamic-options endpoint
+ * instead, so a shared HTML cache cannot serve one visitor's identity to another.
+ *
+ * Keyed by pixel slug. Add-ons that ship their own user data register through the
+ * filter rather than being hard-coded here. Slugs whose pixel is not registered or
+ * not configured are simply skipped, so listing tiktok here costs nothing and keeps
+ * this map identical to the Pro one.
+ *
+ * @return array<string, string[]>
+ */
+function getDynamicUserDataKeys() {
+    return apply_filters( 'pys_dynamic_user_data_keys', array(
+        'facebook'  => array( 'advancedMatching' ),
+        'tiktok'    => array( 'advanced_matching' ),
+        'pinterest' => array( 'advancedMatching' ),
+        'reddit'    => array( 'advanced_matching' ),
+        'openai'    => array( 'advanced_matching' ),
+    ) );
+}
+
+/**
+ * Purchase confirmation pages are exempt from the PII strip described above.
+ *
+ * Their advanced matching data comes from the order, which is resolved from the
+ * current request URL (order key / payment key) and guarded by the strict 'pii'
+ * access check. The REST endpoint never receives that URL, so it cannot rebuild
+ * the order context — and passing the order key into a second request would just
+ * spread it across more access logs. These pages are also excluded from HTML
+ * caching by every cache plugin, so leaving the data inline is safe.
+ *
+ * @return bool
+ */
+function isPurchaseConfirmationPage() {
+    if ( isWooCommerceActive() && PYS()->woo_is_order_received_page() ) {
+        return true;
+    }
+
+    if ( isEddActive() && function_exists( 'edd_is_success_page' ) && edd_is_success_page() ) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * Builds the src of a <noscript> tracking pixel, escaped for an HTML attribute.
+ *
+ * Every value is URL-encoded here, so callers pass them raw. A null or false
+ * value drops the parameter, as add_query_arg() does.
+ *
+ * @param string $base Pixel endpoint.
+ * @param array  $args Query parameters.
+ * @return string
+ */
+function pys_noscript_pixel_src( $base, $args ) {
+
+	foreach ( $args as $key => $value ) {
+		if ( $value === null || $value === false ) {
+			unset( $args[ $key ] );
+			continue;
+		}
+		$args[ $key ] = rawurlencode( is_array( $value ) ? wp_json_encode( $value ) : (string) $value );
+	}
+
+	$src = add_query_arg( $args, $base );
+	$src = str_replace( array( '[', ']' ), array( '%5B', '%5D' ), $src ); // pass markup validation
+
+	return esc_url( $src );
+
+}
+
+/**
+ * Whether the current code path is building the HTML that goes into the page.
+ *
+ * Page HTML can be stored in a shared full-page cache and replayed to every
+ * other visitor, so anything that identifies the current visitor has to stay
+ * out of it. Server-to-server paths -- CAPI senders, AJAX handlers, the
+ * dynamic-options REST endpoint -- produce a response for one request and are
+ * never inside this context.
+ *
+ * @param bool|null $set Raise or lower the context. Null only reads it.
+ * @return bool The context that was in effect before the call, so a caller can
+ *              restore it instead of assuming it was off.
+ */
+function pys_html_render_context( $set = null ) {
+
+	static $active = false;
+
+	$previous = $active;
+
+	if ( $set !== null ) {
+		$active = (bool) $set;
+	}
+
+	return $previous;
+
+}
+
+/**
+ * Whether the pys_advanced_form_data cookie may be read on this code path.
+ *
+ * The cookie holds the visitor's own email, phone and name. Reading it is right
+ * for anything that answers a single visitor, and wrong while page HTML is
+ * being built: a full-page cache would store that identity and hand it to
+ * everybody else. The browser puts the same values back into the pixels from
+ * its own copy of the cookie, so nothing is lost by leaving them out here.
+ *
+ * Purchase confirmation pages are the exception. They are excluded from caching
+ * by every cache plugin, and their identity comes from the order key in the
+ * request URL rather than from this cookie.
+ */
+function pys_can_read_visitor_cookie_data() {
+
+	if ( pys_advanced_form_data_cookie_disabled() ) {
+		return false;
+	}
+
+	if ( is_admin() && ! wp_doing_ajax() ) {
+		return false;
+	}
+
+	if ( ! pys_html_render_context() ) {
+		return true;
+	}
+
+	if ( isPurchaseConfirmationPage() ) {
+		return true;
+	}
+
+	return (bool) apply_filters( 'pys_render_visitor_pii_in_html', false );
+
+}
+
+/**
+ * True when the pys_advanced_form_data cookie must not be written or read.
+ *
+ * The admin toggle is checked first; the two developer filters shipped before
+ * that toggle existed, so sites relying on either keep working unchanged.
+ */
+function pys_advanced_form_data_cookie_disabled() {
+
+	if ( ! PYS()->getOption( 'enable_advanced_form_data_cookie', true ) ) {
+		return true;
+	}
+
+	return (bool) apply_filters( 'pys_disable_advanced_form_data_cookie', false )
+	       || (bool) apply_filters( 'pys_disable_advance_data_cookie', false );
+
+}
+
+/**
+ * Lifetime of the pys_advanced_form_data cookie, in days.
+ *
+ * Attribution windows are measured in days and weeks. This cookie used to be
+ * written with a 2038 expiry, which kept a visitor's email on the device far
+ * longer than anything could use it. Sites with a long sales cycle can raise
+ * it through the filter.
+ */
+function pys_advanced_form_data_cookie_days() {
+
+	$days = (int) apply_filters( 'pys_advanced_form_data_cookie_days', 30 );
+
+	return $days > 0 ? $days : 30;
+
+}
+
+/**
+ * Write the pys_advanced_form_data cookie with the transport flags it needs.
+ *
+ * HttpOnly is deliberately absent: the browser-side pixel code has to read this
+ * value to hand it to Meta's and TikTok's pixels, which hash it themselves.
+ * Secure is derived from pys_is_request_secure() rather than is_ssl() so that
+ * sites behind an SSL-terminating proxy still get the flag.
+ *
+ * @param array $userData
+ */
+function pys_set_advanced_form_data_cookie( $userData ) {
+
+	// Until the browser reports the domain it accepts, the scope below would be
+	// host-only while the front end writes the same name on the site domain.
+	// Both copies then coexist, and PHP and js-cookie alike read the older one,
+	// so fresh values get written but are never read back.
+	// The same gate holds the write back when the site has switched every PYS
+	// cookie off, or the headers are gone.
+	if ( ! pys_may_write_cookies() ) {
+		return;
+	}
+
+	$domain = pys_cookie_domain();
+	$secure = pys_is_request_secure();
+
+	setcookie( 'pys_advanced_form_data', wp_json_encode( $userData ), array(
+		'expires'  => time() + pys_advanced_form_data_cookie_days() * DAY_IN_SECONDS,
+		'path'     => '/',
+		'domain'   => $domain,
+		'secure'   => $secure,
+		'samesite' => 'Lax',
+	) );
+
+	// Retire a host-only copy an earlier request left behind, for the same
+	// reason. No 'domain' key is what makes this target the host-only cookie.
+	if ( '' !== $domain ) {
+		setcookie( 'pys_advanced_form_data', '', array(
+			'expires'  => time() - YEAR_IN_SECONDS,
+			'path'     => '/',
+			'secure'   => $secure,
+			'samesite' => 'Lax',
+		) );
+	}
+
+}
+
+/**
+ * Suggested privacy-policy wording for the data this plugin keeps on the
+ * visitor's device, so site owners can declare the advanced matching cookie
+ * instead of having to discover it.
+ */
+function pys_add_privacy_policy_content() {
+
+	if ( ! function_exists( 'wp_add_privacy_policy_content' ) ) {
+		return;
+	}
+
+	$content = '<p class="privacy-policy-tutorial">'
+	           . __( 'Suggested text for sites using PixelYourSite advanced matching:', 'pys' )
+	           . '</p><p>'
+	           . sprintf(
+		/* translators: 1: cookie name, 2: number of days the cookie is kept */
+		           __( 'When you enter your email address, phone number or name into a form on this site, we store those values in a cookie named %1$s on your browser, for up to %2$d days. We use them to recognise you when you return, so that conversions can be attributed correctly by our advertising providers. The cookie is set on this site\'s own domain. You can remove it at any time by clearing your browser cookies.', 'pys' ),
+		           '<code>pys_advanced_form_data</code>',
+		           pys_advanced_form_data_cookie_days()
+	           )
+	           . '</p>';
+
+	wp_add_privacy_policy_content( 'PixelYourSite', $content );
+
+}
+
+/**
  * Get persistence user data
  * @param $em
  * @param $fn
@@ -1110,7 +2200,7 @@ function getBrowserTime(){
  */
 function get_persistence_user_data( $em, $fn, $ln, $tel ) {
 
-	if ( !apply_filters( 'pys_disable_advanced_form_data_cookie', false ) && !apply_filters( 'pys_disable_advance_data_cookie', false ) ) {
+	if ( pys_can_read_visitor_cookie_data() ) {
 		if ( isset( $_COOKIE[ "pys_advanced_form_data" ] ) ) {
 			$userData = json_decode( stripslashes( $_COOKIE[ "pys_advanced_form_data" ] ), true );
 			$data_persistence = PYS()->getOption( 'data_persistency' );
@@ -1612,4 +2702,235 @@ function pys_update_option( $option, $value ) {
     }
 
     return true;
+}
+
+/**
+ * Per-site secret that keys the visitor id.
+ *
+ * Standalone option on purpose: the site-profile exporter walks the PYS
+ * options array only, so this never travels with a profile. Deleting the
+ * option re-keys every cookie-less visitor; cookie holders keep their value.
+ *
+ * @return string 64 hex chars
+ */
+function pys_pbid_secret() {
+    static $secret = null;
+
+    if ( is_string( $secret ) ) {
+        return $secret;
+    }
+
+    $stored = get_option( 'pys_pbid_secret', '' );
+
+    if ( is_string( $stored ) && strlen( $stored ) === 64 ) {
+        $secret = $stored;
+        return $secret;
+    }
+
+    // First use. WordPress' add_option() upserts, so two racing first requests
+    // would each keep their own secret for the duration of the request and hand
+    // out ids that never recur. INSERT IGNORE on the unique option_name lets
+    // exactly one of them win, with no lock to time out or be unsupported; the
+    // value is then re-read straight from the table, past this request's
+    // option cache, so the loser adopts the winner's secret.
+    global $wpdb;
+
+    $wpdb->query( $wpdb->prepare(
+        "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, %s)",
+        'pys_pbid_secret',
+        bin2hex( random_bytes( 32 ) ),
+        'yes'
+    ) );
+
+    // The row was written behind the options API's back.
+    wp_cache_delete( 'pys_pbid_secret', 'options' );
+    wp_cache_delete( 'alloptions', 'options' );
+    wp_cache_delete( 'notoptions', 'options' );
+
+    $stored = $wpdb->get_var( $wpdb->prepare(
+        "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+        'pys_pbid_secret'
+    ) );
+
+    if ( ! is_string( $stored ) || strlen( $stored ) !== 64 ) {
+        // A malformed row was already there, which INSERT IGNORE leaves alone.
+        $stored = bin2hex( random_bytes( 32 ) );
+        update_option( 'pys_pbid_secret', $stored, 'yes' );
+    }
+
+    $secret = $stored;
+    return $secret;
+}
+
+/**
+ * Deterministic browser id for a visitor who carries no cookie.
+ *
+ * The same request signals give the same id, so page render, the
+ * dynamic-options endpoint, pys_get_pbid and server events agree on the very
+ * first page view, with no storage and no rotation. Keyed with the site secret
+ * so it cannot be derived from public data and differs per site.
+ *
+ * Two people who share an address AND an identical browser build and language
+ * share an id; that is the price of an id that exists before any cookie does.
+ *
+ * @param array|null $server Request environment; defaults to $_SERVER.
+ * @return string 64 hex chars
+ */
+function pys_visitor_key( $server = null ) {
+    if ( null === $server ) {
+        $server = $_SERVER;
+    }
+
+    $parts = array(
+        'ip'       => pys_resolve_client_ip( $server, false ),
+        'ua'       => isset( $server['HTTP_USER_AGENT'] ) ? (string) $server['HTTP_USER_AGENT'] : '',
+        'language' => isset( $server['HTTP_ACCEPT_LANGUAGE'] ) ? (string) $server['HTTP_ACCEPT_LANGUAGE'] : '',
+    );
+
+    /**
+     * Filters the request signals that make up the visitor id.
+     *
+     * @param array $parts  Ordered name => value map; values are joined with '|'.
+     * @param array $server Request environment the parts were read from.
+     */
+    $parts = apply_filters( 'pys_pbid_fingerprint_parts', $parts, $server );
+
+    return hash_hmac( 'sha256', implode( '|', array_map( 'strval', $parts ) ), pys_pbid_secret() );
+}
+
+
+/**
+ * An external id in the one shape both channels send identically.
+ *
+ * fbevents.js hands every `ud[...]` value to its identity plugin, which passes a
+ * 32- or 64-hex value through lowercased and SHA-256s anything else. Meta also
+ * lists external_id as "hashing recommended", and Pinterest's API spec types the
+ * field as hashes outright. So a hash is the only value the browser Pixel and the
+ * server send as the same string -- a raw account id would reach Meta as "7" from
+ * the server and as sha256("7") from the Pixel.
+ *
+ * Every browser id PYS has ever issued is already 64 hex characters (the keyed
+ * visitor key, and the random mint before it), so this leaves those untouched and
+ * only hashes the values that are not hashes yet.
+ *
+ * @param string $value Id in any shape.
+ * @return string Hash, or '' when there was nothing to name.
+ */
+function pys_hash_external_id( $value ) {
+    $value = trim( (string) $value );
+
+    if ( '' === $value ) {
+        return '';
+    }
+
+    if ( preg_match( '/^[A-Fa-f0-9]{32}$|^[A-Fa-f0-9]{64}$/', $value ) ) {
+        return strtolower( $value );
+    }
+
+    return hash( 'sha256', strtolower( $value ) );
+}
+
+/**
+ * Every id that names the current visitor, browser id first.
+ *
+ * Meta's Conversions API types `external_id` as "string or list<string>" and
+ * states "You can send one or more external IDs for a given event"; Pinterest's
+ * API spec types it as a list outright. Sending the whole set instead of a
+ * single value lets a logged-in visitor's browser id and account id be read as
+ * one person, and keeps the id the pixel already sent in the set after login
+ * swapped the id the server resolves.
+ *
+ * The browser id stays first so the single value the pixel puts in fbq('init')
+ * is always a member of the set the server sends -- the two channels must not
+ * disagree about who this is.
+ *
+ * @param int|null $user_id Account to name; defaults to the current user, 0 skips it.
+ * @return string[] Unique non-empty ids, or none when external ids are switched off.
+ */
+function pys_get_external_ids( $user_id = null ) {
+    if ( ! EventsManager::isTrackExternalId() ) {
+        return array();
+    }
+
+    $ids = array();
+
+    // The id the pixel is using on this page right now.
+    if ( ! empty( $_COOKIE['pbid'] ) ) {
+        $ids[] = sanitize_text_field( wp_unslash( $_COOKIE['pbid'] ) );
+    }
+
+    // Whatever this request resolved: the stored id of a logged-in visitor, or
+    // the deterministic key minted before any cookie exists.
+    $ids[] = PYS()->get_pbid();
+
+    if ( null === $user_id ) {
+        $user_id = get_current_user_id();
+    }
+
+    $user_id = (int) $user_id;
+
+    if ( $user_id > 0 ) {
+        /**
+         * Filters the account id before it is hashed.
+         *
+         * The plain WordPress user id by default, so the hash lands on the same
+         * value as one computed from that id elsewhere -- a CRM or offline
+         * conversion upload. Namespace it here when one pixel serves several
+         * sites, where account 5 is a different person on each of them.
+         * Whatever is returned is hashed unless it already is a hash.
+         *
+         * @param string $value   Id before hashing.
+         * @param int    $user_id WordPress user the value was built from.
+         */
+        $ids[] = pys_hash_external_id(
+            apply_filters( 'pys_external_id_user_value', (string) $user_id, $user_id )
+        );
+    }
+
+    $ids = array_filter( array_map( 'strval', $ids ), 'strlen' );
+    $ids = array_values( array_unique( $ids ) );
+
+    /**
+     * Filters the whole set of external ids for one event.
+     *
+     * @param string[] $ids     Ordered, unique, browser id first.
+     * @param int      $user_id WordPress user the set was built for, 0 when anonymous.
+     */
+    return apply_filters( 'pys_external_ids', $ids, $user_id );
+}
+
+/**
+ * External ids for an order, independent of the request that reports it.
+ *
+ * An order is reported from the thank-you page, but also from a webhook, a cron
+ * retry or wp-admin, where the current request belongs to nobody in particular
+ * -- so the ids come from the order itself: the browser id persisted when the
+ * order was placed, plus the account that owns it. pys_get_external_ids() must
+ * not be used here, it would name whoever is making the current request.
+ *
+ * @param string   $stored_id Browser id saved on the order; may be empty.
+ * @param int|null $user_id   Account that owns the order; 0 for a guest.
+ * @return string[] Unique non-empty ids, or none when external ids are switched off.
+ */
+function pys_get_order_external_ids( $stored_id, $user_id = 0 ) {
+    if ( ! EventsManager::isTrackExternalId() ) {
+        return array();
+    }
+
+    $ids = array( $stored_id );
+
+    $user_id = (int) $user_id;
+
+    if ( $user_id > 0 ) {
+        /** This filter is documented in pys_get_external_ids(). */
+        $ids[] = pys_hash_external_id(
+            apply_filters( 'pys_external_id_user_value', (string) $user_id, $user_id )
+        );
+    }
+
+    $ids = array_filter( array_map( 'strval', $ids ), 'strlen' );
+    $ids = array_values( array_unique( $ids ) );
+
+    /** This filter is documented in pys_get_external_ids(). */
+    return apply_filters( 'pys_external_ids', $ids, $user_id );
 }
