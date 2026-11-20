@@ -2,18 +2,21 @@
  * Word-style text highlight for the block editor.
  *
  * Select text, click the highlighter in the block toolbar, pick a colour.
+ * Shortcuts toggle a colour: Alt+Shift+Y yellow, Alt+Shift+G green (Ctrl+Option on macOS).
  * Saves as <mark class="ap-highlight-{colour}">, styled in src/scss/main.scss.
  */
 /** @jsx createElement */
-import { createElement } from '@wordpress/element';
+/** @jsxFrag Fragment */
+import { createElement, Fragment } from '@wordpress/element';
 import { registerFormatType, applyFormat, removeFormat } from '@wordpress/rich-text';
-import { BlockControls } from '@wordpress/block-editor';
+import { BlockControls, RichTextShortcut } from '@wordpress/block-editor';
 import { ToolbarGroup, ToolbarDropdownMenu, SVG, Path } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
+import { displayShortcut } from '@wordpress/keycodes';
 
 const COLOURS = [
-	{ slug: 'yellow', label: __( 'Yellow', 'australiapilgrims' ), hex: '#ffff00' },
-	{ slug: 'green', label: __( 'Green', 'australiapilgrims' ), hex: '#00ff00' },
+	{ slug: 'yellow', label: __( 'Yellow', 'australiapilgrims' ), hex: '#ffff00', key: 'y' },
+	{ slug: 'green', label: __( 'Green', 'australiapilgrims' ), hex: '#00ff00', key: 'g' },
 ];
 const formatName = ( slug ) => `australiapilgrims/highlight-${ slug }`;
 const ALL_FORMATS = COLOURS.map( ( c ) => formatName( c.slug ) );
@@ -36,8 +39,15 @@ const removeAll = ( value ) => ALL_FORMATS.reduce( ( v, name ) => removeFormat( 
 // Only one format renders the toolbar; the others just need to exist so the markup is recognised.
 function HighlightEdit( { value, onChange } ) {
 	const active = COLOURS.find( ( c ) => value.activeFormats?.some( ( f ) => f.type === formatName( c.slug ) ) );
+	const apply = ( c ) => onChange( applyFormat( removeAll( value ), { type: formatName( c.slug ) } ) );
+	// Shortcut toggles: same colour again removes it, like Word's highlighter.
+	const toggle = ( c ) => ( active?.slug === c.slug ? onChange( removeAll( value ) ) : apply( c ) );
 
 	return (
+		<>
+		{ COLOURS.map( ( c ) => (
+			<RichTextShortcut key={ c.slug } type="access" character={ c.key } onUse={ () => toggle( c ) } />
+		) ) }
 		<BlockControls group="inline">
 			<ToolbarGroup>
 				<ToolbarDropdownMenu
@@ -45,10 +55,10 @@ function HighlightEdit( { value, onChange } ) {
 					label={ __( 'Highlight', 'australiapilgrims' ) }
 					controls={ [
 						...COLOURS.map( ( c ) => ( {
-							title: c.label,
+							title: `${ c.label } (${ displayShortcut.access( c.key ) })`,
 							icon: swatch( c.hex ),
 							isActive: active?.slug === c.slug,
-							onClick: () => onChange( applyFormat( removeAll( value ), { type: formatName( c.slug ) } ) ),
+							onClick: () => apply( c ),
 						} ) ),
 						{
 							title: __( 'No highlight', 'australiapilgrims' ),
@@ -59,6 +69,7 @@ function HighlightEdit( { value, onChange } ) {
 				/>
 			</ToolbarGroup>
 		</BlockControls>
+		</>
 	);
 }
 

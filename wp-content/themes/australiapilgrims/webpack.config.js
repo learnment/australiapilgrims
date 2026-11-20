@@ -169,6 +169,7 @@ module.exports = (env, argv) => {
       "@wordpress/element": ["wp", "element"],
       "@wordpress/i18n": ["wp", "i18n"],
       "@wordpress/rich-text": ["wp", "richText"],
+      "@wordpress/keycodes": ["wp", "keycodes"],
       "@wordpress/data": ["wp", "data"],
       "@wordpress/editor": ["wp", "editor"],
       "@wordpress/plugins": ["wp", "plugins"],

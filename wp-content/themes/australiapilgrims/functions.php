@@ -108,7 +108,7 @@ function australiapilgrims_register_highlight_format() {
     wp_register_script(
         'australiapilgrims-highlight-format',
         get_template_directory_uri() . '/dist/js/editor-highlight-format.js',
-        array( 'wp-rich-text', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-i18n' ),
+        array( 'wp-rich-text', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-i18n', 'wp-keycodes' ),
         filemtime( get_template_directory() . '/dist/js/editor-highlight-format.js' ),
         true
     );
